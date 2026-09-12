@@ -1,0 +1,89 @@
+/* NexusAI sidebar — theme aware */
+.sidebar {
+  width: 250px;
+  flex: 0 0 250px;
+  box-sizing: border-box;
+  padding: 26px 16px 0;
+  background: var(--nx-sidebar-bg);
+  color: var(--nx-sidebar-text);
+  border-right: 1px solid var(--nx-border);
+  box-shadow: var(--nx-sidebar-shadow);
+  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+
+.logo {
+  margin: 0 10px 28px;
+  color: var(--nx-sidebar-logo);
+  font-size: 24px;
+  letter-spacing: -0.4px;
+}
+
+.menu {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.menu li {
+  margin: 6px 0;
+}
+
+.menu a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 13px;
+  border-radius: 10px;
+  color: var(--nx-sidebar-text);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.menu a:hover {
+  background: var(--nx-sidebar-hover);
+  color: var(--nx-sidebar-active-text);
+  transform: translateX(1px);
+}
+
+.menu a.active {
+  background: var(--nx-sidebar-active);
+  color: var(--nx-sidebar-active-text);
+}
+
+@media (max-width: 800px) {
+  .sidebar {
+    width: 210px;
+    flex-basis: 210px;
+  }
+}
+
+@media (max-width: 640px) {
+  .sidebar {
+    width: 76px;
+    flex-basis: 76px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .logo {
+    font-size: 0;
+    text-align: center;
+  }
+
+  .logo::after {
+    content: "N";
+    font-size: 24px;
+  }
+
+  .menu a {
+    justify-content: center;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .menu a::first-letter {
+    font-size: 18px;
+  }
+}

@@ -1,0 +1,364 @@
+/* ============================================================
+   NexusAI Global Theme
+   ============================================================ */
+
+:root {
+  --nx-bg: #f5f7fb;
+  --nx-surface: #ffffff;
+  --nx-surface-2: #f8fafc;
+  --nx-surface-3: #eef2f7;
+  --nx-text: #0f172a;
+  --nx-text-secondary: #334155;
+  --nx-text-muted: #64748b;
+  --nx-border: #e2e8f0;
+  --nx-border-soft: #edf1f6;
+  --nx-primary: #2563eb;
+  --nx-primary-hover: #1d4ed8;
+  --nx-primary-soft: #eff6ff;
+  --nx-primary-border: #bfdbfe;
+  --nx-sidebar-bg: #0f172a;
+  --nx-sidebar-text: #cbd5e1;
+  --nx-sidebar-logo: #ffffff;
+  --nx-sidebar-hover: #1e293b;
+  --nx-sidebar-active: #2563eb;
+  --nx-sidebar-active-text: #ffffff;
+  --nx-sidebar-shadow: 2px 0 18px rgba(15, 23, 42, 0.08);
+  --nx-shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
+  --nx-shadow-strong: 0 18px 50px rgba(15, 23, 42, 0.12);
+}
+
+:root[data-theme="dark"] {
+  --nx-bg: #090e1a;
+  --nx-surface: #111827;
+  --nx-surface-2: #172033;
+  --nx-surface-3: #1c2739;
+  --nx-text: #f1f5f9;
+  --nx-text-secondary: #dbe4ef;
+  --nx-text-muted: #94a3b8;
+  --nx-border: #29364b;
+  --nx-border-soft: #202b3d;
+  --nx-primary: #60a5fa;
+  --nx-primary-hover: #93c5fd;
+  --nx-primary-soft: #172b4d;
+  --nx-primary-border: #315b8d;
+  --nx-sidebar-bg: #070b14;
+  --nx-sidebar-text: #aebbd0;
+  --nx-sidebar-logo: #f8fafc;
+  --nx-sidebar-hover: #151e2f;
+  --nx-sidebar-active: #2563eb;
+  --nx-sidebar-active-text: #ffffff;
+  --nx-sidebar-shadow: 2px 0 24px rgba(0, 0, 0, 0.28);
+  --nx-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  --nx-shadow-strong: 0 18px 50px rgba(0, 0, 0, 0.42);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+html {
+  background: var(--nx-bg);
+  color: var(--nx-text);
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  background: var(--nx-bg);
+  color: var(--nx-text);
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+a { color: var(--nx-primary); }
+::selection { background: var(--nx-primary); color: #fff; }
+
+/* Floating theme switch */
+.nexus-theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 99999;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 78px;
+  height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--nx-border);
+  border-radius: 999px;
+  background: var(--nx-surface);
+  color: var(--nx-text);
+  box-shadow: var(--nx-shadow);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+
+.nexus-theme-toggle:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--nx-shadow-strong);
+}
+
+.nexus-theme-toggle span:first-child {
+  width: 18px;
+  text-align: center;
+  font-size: 17px;
+  line-height: 1;
+}
+
+/* Theme hardening for the existing inline-styled screens. */
+main,
+section,
+article {
+  color: var(--nx-text);
+}
+
+:root[data-theme="dark"] [style*="background: #ffffff"],
+:root[data-theme="dark"] [style*="backgroundColor: #ffffff"],
+:root[data-theme="dark"] [style*="background: \"#ffffff\""],
+:root[data-theme="dark"] [style*="backgroundColor: \"#ffffff\""] {
+  background: var(--nx-surface) !important;
+}
+
+:root[data-theme="dark"] [style*="#f8fafc"] {
+  background: var(--nx-bg) !important;
+}
+
+:root[data-theme="dark"] [style*="#eff6ff"] {
+  background: var(--nx-primary-soft) !important;
+}
+
+:root[data-theme="dark"] [style*="#0f172a"],
+:root[data-theme="dark"] [style*="#111827"],
+:root[data-theme="dark"] [style*="#1e293b"],
+:root[data-theme="dark"] [style*="#334155"] {
+  color: var(--nx-text) !important;
+}
+
+:root[data-theme="dark"] [style*="#475569"],
+:root[data-theme="dark"] [style*="#64748b"],
+:root[data-theme="dark"] [style*="#6b7280"],
+:root[data-theme="dark"] [style*="#94a3b8"] {
+  color: var(--nx-text-muted) !important;
+}
+
+:root[data-theme="dark"] [style*="#cbd5e1"],
+:root[data-theme="dark"] [style*="#e2e8f0"],
+:root[data-theme="dark"] [style*="#edf1f6"],
+:root[data-theme="dark"] [style*="#ddd"] {
+  border-color: var(--nx-border) !important;
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select {
+  background-color: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+  border-color: var(--nx-border) !important;
+}
+
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] textarea::placeholder {
+  color: #718198;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ============================================================
+   NexusAI Professional Dashboard
+   ============================================================ */
+.nx-dashboard-page {
+  display: flex;
+  min-height: 100vh;
+  background: var(--nx-bg);
+  color: var(--nx-text);
+}
+
+.nx-dashboard-main {
+  padding: 34px clamp(22px, 3vw, 44px) 48px;
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.nx-dashboard-heading {
+  margin-bottom: 30px;
+}
+
+.nx-dashboard-heading h2 {
+  font-size: clamp(28px, 2.4vw, 34px) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.04em;
+}
+
+.nx-dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 26px;
+}
+
+.nx-stat-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 176px;
+  padding: 21px;
+  border: 1px solid var(--nx-border);
+  border-radius: 16px;
+  background: var(--nx-surface);
+  box-shadow: var(--nx-shadow);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.nx-stat-card::after {
+  content: "";
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  right: -50px;
+  top: -50px;
+  border-radius: 50%;
+  background: var(--nx-primary-soft);
+  opacity: .8;
+}
+
+.nx-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--nx-shadow-strong);
+  border-color: var(--nx-primary-border);
+}
+
+.nx-stat-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.nx-stat-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--nx-primary-soft);
+  color: var(--nx-primary);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.nx-status-pill {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, .12);
+  color: #16a34a;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.nx-stat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--nx-primary);
+  box-shadow: 0 0 0 5px var(--nx-primary-soft);
+}
+
+.nx-stat-label {
+  color: var(--nx-text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.nx-stat-value {
+  margin-top: 5px;
+  color: var(--nx-text);
+  font-size: clamp(26px, 2.2vw, 32px);
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -.035em;
+}
+
+.nx-stat-hint {
+  margin-top: 7px;
+  color: var(--nx-text-muted);
+  font-size: 12px;
+}
+
+.nx-dashboard-panel {
+  margin-bottom: 24px;
+  padding: 23px 24px;
+  border: 1px solid var(--nx-border);
+  border-radius: 16px;
+  background: var(--nx-surface);
+  box-shadow: var(--nx-shadow);
+}
+
+.nx-dashboard-panel h3 {
+  color: var(--nx-text) !important;
+  font-size: 18px;
+  letter-spacing: -.02em;
+}
+
+.nx-ai-shortcut {
+  padding: 22px 24px;
+  border: 1px solid var(--nx-primary-border);
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--nx-primary-soft), var(--nx-surface));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  box-shadow: var(--nx-shadow);
+}
+
+.nx-ai-shortcut button {
+  min-width: 150px;
+  background: var(--nx-primary) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 20px rgba(37,99,235,.20);
+}
+
+.nx-ai-shortcut button:hover {
+  background: var(--nx-primary-hover) !important;
+  transform: translateY(-1px);
+}
+
+/* Make the upload dropzone match the active theme. */
+:root[data-theme="dark"] .nx-dashboard-panel [style*="#ffffff"],
+:root[data-theme="dark"] .nx-dashboard-panel [style*="#fff"],
+:root[data-theme="dark"] .nx-dashboard-panel [style*="white"] {
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+}
+
+:root[data-theme="dark"] .nx-dashboard-panel [style*="#0f172a"],
+:root[data-theme="dark"] .nx-dashboard-panel [style*="#111827"] {
+  color: var(--nx-text) !important;
+}
+
+@media (max-width: 1050px) {
+  .nx-dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .nx-dashboard-main { padding: 24px 14px 36px; }
+  .nx-dashboard-stats { grid-template-columns: 1fr; }
+  .nx-stat-card { min-height: 150px; }
+  .nx-dashboard-panel { padding: 18px; }
+}

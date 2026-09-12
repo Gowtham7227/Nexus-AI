@@ -1,0 +1,87 @@
+.container {
+  width: min(450px, calc(100vw - 40px));
+  margin: 100px auto;
+  padding: 40px;
+  text-align: center;
+  background: var(--nx-surface);
+  color: var(--nx-text);
+  border-radius: 20px;
+  border: 1px solid var(--nx-border);
+  box-shadow: var(--nx-shadow-strong);
+}
+
+button {
+  color: #fff;
+  border: none;
+  padding: 12px 25px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: 180ms ease;
+}
+
+input {
+  width: 90%;
+  padding: 12px;
+  margin: 8px 0;
+  border-radius: 8px;
+  border: 1px solid var(--nx-border);
+  background: var(--nx-surface);
+  color: var(--nx-text);
+  font-size: 15px;
+}
+
+.login-btn {
+  width: 100%;
+  margin-top: 20px;
+  background-color: var(--nx-primary);
+  box-shadow: 0 5px 15px rgba(37, 99, 235, 0.22);
+}
+
+.login-btn:hover {
+  background-color: var(--nx-primary-hover);
+}
+
+.options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 18px 0;
+  font-size: 14px;
+}
+
+#forgot { color: var(--nx-text); }
+
+#checkbox {
+  position: relative;
+  left: 57px;
+  bottom: 23px;
+}
+
+.remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.remember input {
+  width: 16px;
+  height: 16px;
+}
+
+input:focus {
+  outline: none;
+  border: 2px solid var(--nx-primary) !important;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.22);
+}
+
+.options a {
+  color: var(--nx-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.options a:hover {
+  color: var(--nx-primary-hover);
+  text-decoration: underline;
+}
