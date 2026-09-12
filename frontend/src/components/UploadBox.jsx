@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import axios from "axios";
+import api from "../api/client";
 
 function UploadBox({ setFileName, onUploadSuccess }) {
   const fileInputRef = useRef(null);
@@ -31,8 +31,8 @@ function UploadBox({ setFileName, onUploadSuccess }) {
     try {
       setUploading(true);
 
-      const response = await axios.post(
-        "http://127.0.0.1:8000/upload",
+      const response = await api.post(
+        "/upload",
         formData,
         {
           headers: {

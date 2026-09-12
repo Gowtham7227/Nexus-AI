@@ -8,7 +8,7 @@
   - Existing document upload, selection, chat history, and AI calls preserved.
 */
 import { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import api, { API_BASE_URL, getAuthHeaders } from "../api/client";
 import { FaArrowUp, FaPlus, FaMicrophone } from "react-icons/fa";
 
 function ChatInput({
@@ -252,8 +252,8 @@ function ChatInput({
       setLoadingDocuments(true);
 
       const response =
-        await axios.get(
-          "http://127.0.0.1:8000/documents"
+        await api.get(
+          "/documents"
         );
 
       setDocuments(
@@ -407,8 +407,8 @@ function ChatInput({
 
         try {
           const response =
-            await axios.post(
-              "http://127.0.0.1:8000/upload",
+            await api.post(
+              "/upload",
               formData,
               {
                 headers: {
@@ -564,8 +564,8 @@ function ChatInput({
     });
 
     try {
-      const response = await axios.post(
-        "http://127.0.0.1:8000/document-summary",
+      const response = await api.post(
+        "/document-summary",
         {
           question: "Explain the entire document in simple language.",
           filenames: [filename],
@@ -756,14 +756,13 @@ function ChatInput({
       try {
         const response =
           await fetch(
-            "http://127.0.0.1:8000/local-chat",
+            `${API_BASE_URL}/local-chat`,
             {
               method: "POST",
 
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
+              headers: getAuthHeaders({
+                "Content-Type": "application/json",
+              }),
 
               body:
                 JSON.stringify(
@@ -954,8 +953,8 @@ function ChatInput({
         // The current backend summary endpoint processes one document.
         const filename = activeDocuments[0];
 
-        const summaryResponse = await axios.post(
-          "http://127.0.0.1:8000/document-summary",
+        const summaryResponse = await api.post(
+          "/document-summary",
           {
             question: currentQuestion,
             filenames: [filename],
@@ -972,8 +971,8 @@ function ChatInput({
         });
       } else {
         // Normal RAG chat remains unchanged.
-        const response = await axios.post(
-          "http://127.0.0.1:8000/chat",
+        const response = await api.post(
+          "/chat",
           requestBody
         );
 

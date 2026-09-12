@@ -12,7 +12,7 @@ import React, {
   useState,
 } from "react";
 
-import axios from "axios";
+import api from "../api/client";
 import { FaRobot } from "react-icons/fa";
 import ChatInput from "./ChatInput";
 
@@ -248,8 +248,8 @@ function ChatWindow() {
 
     try {
       const response =
-        await axios.post(
-          "http://127.0.0.1:8000/document-summary",
+        await api.post(
+          "/document-summary",
           {
             question:
               "Explain entire document",

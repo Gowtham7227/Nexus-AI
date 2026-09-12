@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import api from "../api/client";
 
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
@@ -22,8 +22,8 @@ function Dashboard() {
 
       const token = localStorage.getItem("token");
 
-      const response = await axios.get(
-        "http://127.0.0.1:8000/documents",
+      const response = await api.get(
+        "/documents",
         {
           headers: token
             ? {
@@ -51,9 +51,9 @@ function Dashboard() {
     const token = localStorage.getItem("token");
 
     if (token) {
-      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
     } else {
-      delete axios.defaults.headers.common.Authorization;
+      delete api.defaults.headers.common.Authorization;
     }
 
     fetchDocuments();

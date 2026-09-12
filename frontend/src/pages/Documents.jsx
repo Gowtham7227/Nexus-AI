@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import api, { API_BASE_URL } from "../api/client";
 
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
@@ -13,7 +13,7 @@ function Documents() {
 
   const fetchDocuments = async () => {
     try {
-      const response = await axios.get("http://127.0.0.1:8000/documents");
+      const response = await api.get("/documents");
       setDocuments(response.data.documents || []);
     } catch (error) {
       console.error("Error fetching documents:", error);
@@ -86,18 +86,25 @@ function Documents() {
     window.location.href = "/chat";
   };
 
-  const handleView = (filename) => {
-    const url =
-      `http://127.0.0.1:8000/documents/` +
-      `${encodeURIComponent(filename)}/file?download=false`;
-
-    window.open(url, "_blank");
+  const handleView = async (filename) => {
+    try {
+      const response = await api.get(
+        `/documents/${encodeURIComponent(filename)}/file?download=false`,
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(response.data);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      console.error("View Error:", error);
+      alert("Failed to open document.");
+    }
   };
 
   const handleDownload = async (filename) => {
     try {
-      const response = await axios.get(
-        `http://127.0.0.1:8000/documents/${encodeURIComponent(
+      const response = await api.get(
+        `/documents/${encodeURIComponent(
           filename
         )}/file?download=true`,
         { responseType: "blob" }
@@ -129,8 +136,8 @@ function Documents() {
     try {
       setDeleting(filename);
 
-      await axios.delete(
-        `http://127.0.0.1:8000/documents/${encodeURIComponent(filename)}`
+      await api.delete(
+        `/documents/${encodeURIComponent(filename)}`
       );
 
       setSelectedDocuments((previous) => {

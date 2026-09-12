@@ -1,7 +1,7 @@
 import "../styles/Sidebar.css";
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
-import axios from "axios";
+import api from "../api/client";
 
 function Sidebar() {
   const [processingMode, setProcessingMode] =
@@ -58,8 +58,8 @@ function Sidebar() {
         "🔥 Starting Qwen3 Local AI warm-up..."
       );
 
-      const response = await axios.post(
-        "http://127.0.0.1:8000/local-warmup"
+      const response = await api.post(
+        "/local-warmup"
       );
 
       console.log(

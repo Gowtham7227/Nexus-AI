@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
-
-const API_BASE_URL = "http://127.0.0.1:8000";
+import api from "../api/client";
 
 function Login() {
   const navigate = useNavigate();
@@ -50,7 +48,7 @@ function Login() {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/login`, {
+      const response = await api.post("/login", {
         email: email.trim().toLowerCase(),
         password,
       });
@@ -87,7 +85,7 @@ function Login() {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/register`, {
+      const response = await api.post("/register", {
         email: email.trim().toLowerCase(),
         password,
       });
@@ -119,8 +117,8 @@ function Login() {
     setLoading(true);
 
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/forgot-password`,
+      const response = await api.post(
+        "/forgot-password",
         {
           email: email.trim().toLowerCase(),
         }
@@ -165,8 +163,8 @@ function Login() {
     setLoading(true);
 
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/reset-password`,
+      const response = await api.post(
+        "/reset-password",
         {
           email: email.trim().toLowerCase(),
           otp: otp.trim(),
