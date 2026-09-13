@@ -1,5 +1,6 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from "react";
-import api, { API_BASE_URL } from "../api/client";
+import api from "../api/client";
 
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";

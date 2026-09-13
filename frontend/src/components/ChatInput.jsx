@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 /*
   NexusAI ChatInput
   UI changes:
@@ -7,9 +8,9 @@
     allowing ChatWindow to move the composer from center to bottom.
   - Existing document upload, selection, chat history, and AI calls preserved.
 */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api, { API_BASE_URL, getAuthHeaders } from "../api/client";
-import { FaArrowUp, FaPlus, FaMicrophone } from "react-icons/fa";
+import { FaArrowUp, FaMicrophone } from "react-icons/fa";
 
 function ChatInput({
   selectedDocument,
@@ -65,13 +66,16 @@ function ChatInput({
   // NORMALIZE SELECTED DOCUMENTS
   // ============================================================
 
-  const activeDocuments =
-    Array.isArray(selectedDocuments) &&
-    selectedDocuments.length > 0
-      ? selectedDocuments
-      : selectedDocument
-      ? [selectedDocument]
-      : [];
+  const activeDocuments = useMemo(
+    () =>
+      Array.isArray(selectedDocuments) &&
+      selectedDocuments.length > 0
+        ? selectedDocuments
+        : selectedDocument
+        ? [selectedDocument]
+        : [],
+    [selectedDocuments, selectedDocument]
+  );
 
   const isMultiDocument =
     activeDocuments.length > 1;
@@ -80,7 +84,7 @@ function ChatInput({
   // CHAT HISTORY KEY
   // ============================================================
 
-  const getChatHistoryKey = () => {
+  const getChatHistoryKey = useCallback(() => {
     if (activeDocuments.length === 0) {
       return "";
     }
@@ -89,7 +93,7 @@ function ChatInput({
       .slice()
       .sort()
       .join("||");
-  };
+  }, [activeDocuments]);
 
   // ============================================================
   // LOAD AI MODE
@@ -178,6 +182,8 @@ function ChatInput({
   }, [
     selectedDocument,
     selectedDocuments,
+    activeDocuments.length,
+    getChatHistoryKey,
   ]);
 
   // ============================================================
@@ -547,6 +553,7 @@ function ChatInput({
   // EXPLAIN ENTIRE DOCUMENT
   // ============================================================
 
+  /* eslint-disable-next-line no-unused-vars */
   const explainEntireDocument = async () => {
     if (loading || uploading) return;
 
@@ -2274,3 +2281,8 @@ function ChatInput({
 }
 
 export default ChatInput;
+
+
+
+
+

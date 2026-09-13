@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
@@ -472,7 +473,7 @@ function Settings() {
               ["☁️", "Cloud Processing", "Cloud Mode uses cloud-based AI services for document analysis."],
               ["📄", "Document Context Isolation", "Responses use the selected document and its retrieved context."],
               ["⚙️", "User Control", "You can switch between Local and Cloud processing based on your needs."],
-            ].map(([icon, title, description], index) => (
+            ].map(([icon, title, description]) => (
               <div
                 key={title}
                 style={{

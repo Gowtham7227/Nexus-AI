@@ -501,23 +501,7 @@ function ChatWindow() {
   // CHAT MODE TEXT
   // ============================================================
 
-  const getChatModeText = () => {
-    if (
-      selectedDocuments.length ===
-      0
-    ) {
-      return "Use the + button below to upload or select a document.";
-    }
 
-    if (
-      selectedDocuments.length ===
-      1
-    ) {
-      return "Ask anything about the selected document.";
-    }
-
-    return `Ask questions, compare, or analyze these ${selectedDocuments.length} selected documents together.`;
-  };
 
   // ============================================================
   // LOADING
