@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from "react";
 import api from "../api/client";
 
@@ -78,6 +77,20 @@ function Dashboard() {
       );
     };
   }, []);
+
+  useEffect(() => {
+    const hasProcessing = documents.some(
+      (doc) =>
+        doc.processing_status === "processing" || doc.status === "processing"
+    );
+    if (!hasProcessing) return;
+
+    const interval = setInterval(() => {
+      fetchDocuments(false);
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [documents]);
 
   const handleUploadSuccess = () => {
     fetchDocuments(true);

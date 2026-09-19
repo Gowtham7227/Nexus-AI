@@ -1,7 +1,9 @@
 import os
 import re
+import time
 
 from dotenv import load_dotenv
+from fastapi import HTTPException
 from google import genai
 from google.genai import types
 
@@ -12,30 +14,20 @@ from google.genai import types
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not GEMINI_API_KEY:
-    raise RuntimeError(
-        "GEMINI_API_KEY is not set in the .env file"
-    )
-
-client = genai.Client(
-    api_key=GEMINI_API_KEY
+from gemini_service import (
+    generate_gemini_text,
+    get_gemini_client,
+    CURRENT_MODEL as GEMINI_MODEL,
+    GEMINI_API_KEY,
 )
 
-GEMINI_MODEL = "gemini-3.6-flash"
+client = get_gemini_client()
 
 # Hard limit: maximum 2 Gemini calls per document explanation.
 MAX_GEMINI_CALLS = 2
 
-# Keep output budgets realistic so thinking does not consume
-# the entire generation budget.
 FIRST_PASS_MAX_OUTPUT_TOKENS = 2200
 FINAL_MAX_OUTPUT_TOKENS = 3200
-
-# Gemini 3.6 Flash supports minimal thinking.
-# This leaves more of the output budget for the actual answer.
-THINKING_LEVEL = "minimal"
 
 
 # ============================================================
@@ -53,23 +45,15 @@ NUMBER_WORDS = {
 
 def extract_requested_count(question):
     """Detect an explicit user request for N points/items."""
-
     if not question:
         return None
 
     text = question.strip().lower()
 
     numeric_patterns = [
-        r"\b(?:in|with|using)\s+(\d{1,2})\s+"
-        r"(?:points?|bullet\s+points?|bullets?|items?|"
-        r"key\s+points?|key\s+items?)\b",
-        r"\b(?:give|provide|list|tell|summarize|explain)"
-        r"\s+(?:me\s+)?(\d{1,2})\s+"
-        r"(?:points?|bullet\s+points?|bullets?|items?|"
-        r"key\s+points?|key\s+items?)\b",
-        r"\b(\d{1,2})\s+"
-        r"(?:points?|bullet\s+points?|bullets?|items?|"
-        r"key\s+points?|key\s+items?)\b",
+        r"\b(?:in|with|using)\s+(\d{1,2})\s+(?:points?|bullet\s+points?|bullets?|items?|key\s+points?|key\s+items?)\b",
+        r"\b(?:give|provide|list|tell|summarize|explain)\s+(?:me\s+)?(\d{1,2})\s+(?:points?|bullet\s+points?|bullets?|items?|key\s+points?|key\s+items?)\b",
+        r"\b(\d{1,2})\s+(?:points?|bullet\s+points?|bullets?|items?|key\s+points?|key\s+items?)\b",
     ]
 
     for pattern in numeric_patterns:
@@ -82,16 +66,9 @@ def extract_requested_count(question):
     words = "|".join(NUMBER_WORDS.keys())
 
     word_patterns = [
-        rf"\b(?:in|with|using)\s+({words})\s+"
-        r"(?:points?|bullet\s+points?|bullets?|items?|"
-        r"key\s+points?|key\s+items?)\b",
-        rf"\b(?:give|provide|list|tell|summarize|explain)"
-        rf"\s+(?:me\s+)?({words})\s+"
-        r"(?:points?|bullet\s+points?|bullets?|items?|"
-        r"key\s+points?|key\s+items?)\b",
-        rf"\b({words})\s+"
-        r"(?:points?|bullet\s+points?|bullets?|items?|"
-        r"key\s+points?|key\s+items?)\b",
+        rf"\b(?:in|with|using)\s+({words})\s+(?:points?|bullet\s+points?|bullets?|items?|key\s+points?|key\s+items?)\b",
+        rf"\b(?:give|provide|list|tell|summarize|explain)\s+(?:me\s+)?({words})\s+(?:points?|bullet\s+points?|bullets?|items?|key\s+points?|key\s+items?)\b",
+        rf"\b({words})\s+(?:points?|bullet\s+points?|bullets?|items?|key\s+points?|key\s+items?)\b",
     ]
 
     for pattern in word_patterns:
@@ -108,9 +85,7 @@ def build_count_instruction(requested_count):
 
     return f"""
 STRICT USER FORMAT REQUIREMENT:
-
 The user explicitly requested {requested_count} points/items.
-
 Return EXACTLY {requested_count} bullet points.
 
 - Never return more or fewer.
@@ -123,39 +98,26 @@ Return EXACTLY {requested_count} bullet points.
 
 def normalize_requested_points(text, requested_count):
     """Final safety layer to return exactly N bullets."""
-
     if not text or not requested_count:
         return text.strip() if text else ""
 
-    # Remove markdown headings.
     text = re.sub(r"(?m)^\s*#{1,6}\s+.*?$", "", text)
-
-    # Remove common section labels.
     text = re.sub(
-        r"(?mi)^\s*(?:what this document is about|main topics|"
-        r"important details|important findings and conclusions|"
-        r"in simple words|summary|conclusion)\s*:?\s*$",
+        r"(?mi)^\s*(?:what this document is about|main topics|important details|important findings and conclusions|in simple words|summary|conclusion)\s*:?\s*$",
         "",
-        text
+        text,
     )
 
-    lines = [
-        line.strip()
-        for line in text.splitlines()
-        if line.strip()
-    ]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     bullets = []
-
     for line in lines:
         match = re.match(r"^(?:[-*•]|\d+[.)])\s+(.*)$", line)
         if match and match.group(1).strip():
             bullets.append(match.group(1).strip())
 
     if len(bullets) >= requested_count:
-        return "\n".join(
-            f"- {item}" for item in bullets[:requested_count]
-        )
+        return "\n".join(f"- {item}" for item in bullets[:requested_count])
 
     clean = " ".join(lines)
     clean = re.sub(r"\s+", " ", clean).strip()
@@ -163,16 +125,11 @@ def normalize_requested_points(text, requested_count):
     if not clean:
         return text.strip()
 
-    sentences = [
-        s.strip()
-        for s in re.split(r"(?<=[.!?])\s+", clean)
-        if s.strip()
-    ]
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean) if s.strip()]
 
     if len(sentences) >= requested_count:
         groups = []
         total = len(sentences)
-
         for i in range(requested_count):
             start = round(i * total / requested_count)
             end = round((i + 1) * total / requested_count)
@@ -181,16 +138,12 @@ def normalize_requested_points(text, requested_count):
                 groups.append(group)
 
         if len(groups) == requested_count:
-            return "\n".join(
-                f"- {group}" for group in groups
-            )
+            return "\n".join(f"- {group}" for group in groups)
 
     words = clean.split()
-
     if len(words) >= requested_count:
         groups = []
         total = len(words)
-
         for i in range(requested_count):
             start = round(i * total / requested_count)
             end = round((i + 1) * total / requested_count)
@@ -199,9 +152,7 @@ def normalize_requested_points(text, requested_count):
                 groups.append(group)
 
         if len(groups) == requested_count:
-            return "\n".join(
-                f"- {group}" for group in groups
-            )
+            return "\n".join(f"- {group}" for group in groups)
 
     return text.strip()
 
@@ -211,251 +162,84 @@ def normalize_requested_points(text, requested_count):
 # ============================================================
 
 def extract_response_text(response):
-    """
-    Safely extract final text from a Gemini response.
-    """
-
-    direct_text = getattr(
-        response,
-        "text",
-        None
-    )
-
+    direct_text = getattr(response, "text", None)
     if direct_text and str(direct_text).strip():
         return str(direct_text).strip()
 
-    candidates = (
-        getattr(
-            response,
-            "candidates",
-            None
-        )
-        or []
-    )
-
+    candidates = getattr(response, "candidates", None) or []
     collected = []
 
     for candidate in candidates:
-
-        content = getattr(
-            candidate,
-            "content",
-            None
-        )
-
+        content = getattr(candidate, "content", None)
         if not content:
             continue
-
-        parts = (
-            getattr(
-                content,
-                "parts",
-                None
-            )
-            or []
-        )
-
+        parts = getattr(content, "parts", None) or []
         for part in parts:
+            part_text = getattr(part, "text", None)
+            if part_text and str(part_text).strip():
+                collected.append(str(part_text).strip())
 
-            part_text = getattr(
-                part,
-                "text",
-                None
-            )
-
-            if part_text and str(
-                part_text
-            ).strip():
-
-                collected.append(
-                    str(part_text).strip()
-                )
-
-    return "\n".join(
-        collected
-    ).strip()
+    return "\n".join(collected).strip()
 
 
-def print_response_debug(
-    response,
-    label
-):
-    """
-    Print Gemini response metadata so truncation is visible.
-    """
-
+def print_response_debug(response, label):
     print("=" * 70)
-    print(
-        f"🔎 GEMINI RESPONSE DEBUG — {label}"
-    )
-
-    candidates = (
-        getattr(
-            response,
-            "candidates",
-            None
-        )
-        or []
-    )
-
-    print(
-        "Candidates:",
-        len(candidates)
-    )
-
-    for index, candidate in enumerate(
-        candidates,
-        start=1
-    ):
-
-        finish_reason = getattr(
-            candidate,
-            "finish_reason",
-            None
-        )
-
-        finish_message = getattr(
-            candidate,
-            "finish_message",
-            None
-        )
-
-        print(
-            f"Candidate {index} finish reason:",
-            finish_reason
-        )
-
+    print(f"🔎 GEMINI RESPONSE DEBUG — {label}")
+    candidates = getattr(response, "candidates", None) or []
+    print("Candidates:", len(candidates))
+    for index, candidate in enumerate(candidates, start=1):
+        finish_reason = getattr(candidate, "finish_reason", None)
+        finish_message = getattr(candidate, "finish_message", None)
+        print(f"Candidate {index} finish reason:", finish_reason)
         if finish_message:
-
-            print(
-                f"Candidate {index} finish message:",
-                finish_message
-            )
-
-    prompt_feedback = getattr(
-        response,
-        "prompt_feedback",
-        None
-    )
-
-    if prompt_feedback:
-
-        print(
-            "Prompt feedback:",
-            prompt_feedback
-        )
-
+            print(f"Candidate {index} finish message:", finish_message)
     print("=" * 70)
 
 
 # ============================================================
-# ONE GEMINI REQUEST
+# ONE GEMINI REQUEST WITH MODEL FALLBACK
 # ============================================================
 
-def generate_gemini_response(
-    prompt,
-    max_output_tokens,
-    label
-):
-    """
-    Make exactly one Gemini request.
+def generate_gemini_response(prompt, max_output_tokens, label):
+    text, error = generate_gemini_text(
+        contents=prompt,
+        max_output_tokens=max_output_tokens,
+        label=label,
+    )
+    if text and text.strip():
+        return text.strip()
+    if error:
+        print(f"❌ [{label}] Gemini generation failed: {error}")
+    return ""
 
-    No automatic retries are used because the document-wide
-    feature is intentionally limited to two API calls.
-    """
-
-    try:
-
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                max_output_tokens=max_output_tokens,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level=THINKING_LEVEL
-                ),
-            ),
-        )
-
-        print_response_debug(
-            response,
-            label
-        )
-
-        text = extract_response_text(
-            response
-        )
-
-        print(
-            f"📝 {label} extracted text length:",
-            len(text)
-        )
-
-        if not text:
-
-            print(
-                f"⚠️ {label}: Gemini returned no usable text."
-            )
-
-        return text
-
-    except Exception as e:
-
-        print(
-            f"❌ {label} Gemini error:",
-            str(e)
-        )
-
-        return ""
 
 
 # ============================================================
 # CALL 1 — FIRST HALF COVERAGE
 # ============================================================
 
-def create_first_half_summary(
-    first_half,
-    filename
-):
-    """
-    Create a compact but information-rich coverage summary
-    of the first half.
-    """
-
+def create_first_half_summary(first_half, filename):
     print("=" * 70)
-    print(
-        "🧠 GEMINI CALL 1/2 — FIRST HALF COVERAGE"
-    )
-    print(
-        "Filename:",
-        filename
-    )
-    print(
-        "First-half characters:",
-        len(first_half)
-    )
+    print("🧠 GEMINI CALL 1/2 — FIRST HALF COVERAGE")
+    print("Filename:", filename)
+    print("First-half characters:", len(first_half))
     print("=" * 70)
 
-    prompt = f"""
-You are NexusAI.
+    prompt = f"""You are NexusAI.
 
 Read the FIRST HALF of the document below.
 
-Create a compact factual coverage summary for a second AI
-call. Capture the important information, not prose.
+Create a compact factual coverage summary for a second AI call. Capture the important information, not prose.
 
 Rules:
 - Use only the supplied text.
 - No outside knowledge.
 - Do not invent facts.
 - Cover every major topic in this half.
-- Preserve important names, dates, numbers, definitions,
-  examples, classifications, findings and conclusions.
-- Include information from the beginning, middle and end
-  of this supplied half.
+- Preserve important names, dates, numbers, definitions, examples, classifications, findings and conclusions.
+- Include information from the beginning, middle and end of this supplied half.
 - Remove repetition.
-- Do not mention AI, RAG, retrieval, embeddings, databases,
-  prompts, or API processing.
+- Do not mention AI, RAG, retrieval, embeddings, databases, prompts, or API processing.
 
 Use this structure:
 
@@ -485,7 +269,7 @@ DOCUMENT:
     return generate_gemini_response(
         prompt,
         FIRST_PASS_MAX_OUTPUT_TOKENS,
-        "CALL 1"
+        "CALL 1",
     )
 
 
@@ -493,51 +277,19 @@ DOCUMENT:
 # CALL 2 — FINAL COMPLETE EXPLANATION
 # ============================================================
 
-def create_final_explanation(
-    first_summary,
-    second_half,
-    filename,
-    question=None
-):
-    """
-    Generate the final user-facing explanation.
-
-    Source A covers the first half.
-    Source B is the complete second half.
-    """
-
+def create_final_explanation(first_summary, second_half, filename, question=None):
     print("=" * 70)
-    print(
-        "🧠 GEMINI CALL 2/2 — FINAL DOCUMENT EXPLANATION"
-    )
-    print(
-        "Filename:",
-        filename
-    )
-    print(
-        "First summary characters:",
-        len(first_summary)
-    )
-    print(
-        "Second-half characters:",
-        len(second_half)
-    )
+    print("🧠 GEMINI CALL 2/2 — FINAL DOCUMENT EXPLANATION")
+    print("Filename:", filename)
+    print("First summary characters:", len(first_summary))
+    print("Second-half characters:", len(second_half))
 
     requested_count = extract_requested_count(question)
-
-    print(
-        "Requested point count:",
-        requested_count
-    )
-
-    count_instruction = build_count_instruction(
-        requested_count
-    )
-
+    print("Requested point count:", requested_count)
+    count_instruction = build_count_instruction(requested_count)
     print("=" * 70)
 
-    prompt = f"""
-You are NexusAI.
+    prompt = f"""You are NexusAI.
 
 Explain the COMPLETE uploaded document in simple language.
 
@@ -563,21 +315,17 @@ Rules:
 4. Cover the beginning, middle and end.
 5. Do not focus only on Source B.
 6. Cover all major topics.
-7. Preserve important facts, names, dates, numbers,
-   definitions, examples, classifications and conclusions.
+7. Preserve important facts, names, dates, numbers, definitions, examples, classifications and conclusions.
 8. Explain technical ideas simply.
 9. Remove repetition.
-10. Do not mention AI, RAG, retrieval, embeddings,
-    databases, prompts, Gemini, API calls or internal
-    processing.
+10. Do not mention AI, RAG, retrieval, embeddings, databases, prompts, Gemini, API calls or internal processing.
 11. Do not write "(continued)".
 12. Never leave a bullet or sentence unfinished.
 13. Do not invent information to make the answer longer.
 
 {count_instruction}
 
-If the user explicitly requested a number of points, that
-format requirement overrides the normal five-heading format.
+If the user explicitly requested a number of points, that format requirement overrides the normal five-heading format.
 
 When a point count was NOT requested, use EXACTLY these five headings:
 
@@ -591,26 +339,20 @@ Use clear bullet points. Explain every major topic.
 
 ### Important details
 
-Give the most useful supporting facts, names, dates,
-numbers, definitions, examples and classifications.
+Give the most useful supporting facts, names, dates, numbers, definitions, examples and classifications.
 
 ### Important findings and conclusions
 
-Give important findings, conclusions, debates or key
-takeaways supported by the document.
+Give important findings, conclusions, debates or key takeaways supported by the document.
 
 ### In simple words
 
-Explain what the whole document is saying in beginner-friendly
-language.
+Explain what the whole document is saying in beginner-friendly language.
 
-When no point count was requested, keep the answer complete but
-concise and aim for roughly 700–1000 words when the document
-supports that amount.
+When no point count was requested, keep the answer complete but concise and aim for roughly 700–1000 words when the document supports that amount.
 
 Before finishing:
-- If a point count was requested, verify the answer has exactly
-  the requested number of bullets and no extra sections.
+- If a point count was requested, verify the answer has exactly the requested number of bullets and no extra sections.
 - Otherwise verify all five headings are present.
 - In both cases, represent the beginning, middle and end.
 - Cover major topics.
@@ -623,7 +365,7 @@ Return ONLY the final explanation.
     return generate_gemini_response(
         prompt,
         FINAL_MAX_OUTPUT_TOKENS,
-        "CALL 2"
+        "CALL 2",
     )
 
 
@@ -631,185 +373,64 @@ Return ONLY the final explanation.
 # MAIN DOCUMENT EXPLANATION
 # ============================================================
 
-def explain_document(
-    text,
-    filename,
-    question=None
-):
-    """
-    Document-wide explanation with a hard maximum of two
-    Gemini requests.
-
-    Call 1:
-        First half -> compact factual coverage.
-
-    Call 2:
-        First-half coverage + complete second half
-        -> final explanation.
-
-    Existing /chat, /local-chat and comparison routes are not
-    changed by this function.
-    """
-
+def explain_document(text, filename, question=None):
     if not text or not text.strip():
-
-        return (
-            "I couldn't find readable content "
-            "in the uploaded document."
-        )
+        return "I couldn't find readable content in the uploaded document."
 
     text = text.strip()
 
     print("=" * 70)
-    print(
-        "📄 DOCUMENT-WIDE EXPLANATION"
-    )
-    print(
-        "Filename:",
-        filename
-    )
-    print(
-        "Text length:",
-        len(text)
-    )
-
-    print(
-        "User question:",
-        question
-    )
-
-    print(
-        "Requested point count:",
-        extract_requested_count(question)
-    )
-
+    print("📄 DOCUMENT-WIDE EXPLANATION")
+    print("Filename:", filename)
+    print("Text length:", len(text))
+    print("User question:", question)
+    print("Requested point count:", extract_requested_count(question))
     print("=" * 70)
 
-    print(
-        "📌 Strategy: TWO Gemini requests"
-    )
-
-    print(
-        "📌 Maximum Gemini calls:",
-        MAX_GEMINI_CALLS
-    )
-
-    print(
-        "📌 Thinking level:",
-        THINKING_LEVEL
-    )
-
-    # --------------------------------------------------------
-    # LOCAL SPLIT
-    # --------------------------------------------------------
-
+    # Split document in half for balanced coverage
     midpoint = len(text) // 2
-
     first_half = text[:midpoint]
     second_half = text[midpoint:]
 
-    print(
-        "📚 First-half characters:",
-        len(first_half)
-    )
+    print("📚 First-half characters:", len(first_half))
+    print("📚 Second-half characters:", len(second_half))
 
-    print(
-        "📚 Second-half characters:",
-        len(second_half)
-    )
-
-    # --------------------------------------------------------
-    # CALL 1
-    # --------------------------------------------------------
-
-    first_summary = create_first_half_summary(
-        first_half,
-        filename
-    )
+    # Call 1: First half coverage
+    first_summary = create_first_half_summary(first_half, filename)
 
     if not first_summary:
-
-        print(
-            "❌ Call 1 failed or returned empty text."
+        print("[ERROR] Document Summary Call 1 failed across all fallback models.")
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini API is temporarily unavailable. Please try again shortly.",
         )
 
-        return (
-            "I couldn't generate an explanation "
-            "from the uploaded document. "
-            "Gemini did not return usable content "
-            "for the first analysis step."
-        )
+    print("[SUCCESS] Call 1 complete. First-half coverage length:", len(first_summary))
 
-    print(
-        "✅ Call 1 complete."
-    )
-
-    print(
-        "📝 First-half coverage length:",
-        len(first_summary)
-    )
-
-    # --------------------------------------------------------
-    # CALL 2
-    # --------------------------------------------------------
-
+    # Call 2: Final combined explanation
     final_answer = create_final_explanation(
         first_summary,
         second_half,
         filename,
-        question
+        question,
     )
 
     if not final_answer:
-
-        print(
-            "❌ Call 2 failed or returned empty text."
+        print("[ERROR] Document Summary Call 2 failed across all fallback models.")
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini API is temporarily unavailable. Please try again shortly.",
         )
-
-        return (
-            "I couldn't generate the final explanation "
-            "from the uploaded document. "
-            "Gemini did not return usable content "
-            "for the final explanation step."
-        )
-
-    # --------------------------------------------------------
-    # FINAL FORMAT ENFORCEMENT
-    # --------------------------------------------------------
 
     requested_count = extract_requested_count(question)
-
     if requested_count:
-        final_answer = normalize_requested_points(
-            final_answer,
-            requested_count
-        )
-
-        print(
-            "🎯 Final requested point count:",
-            requested_count
-        )
-
-        print(
-            "📝 Normalized final response length:",
-            len(final_answer)
-        )
-
-    # --------------------------------------------------------
-    # SUCCESS
-    # --------------------------------------------------------
+        final_answer = normalize_requested_points(final_answer, requested_count)
+        print("🎯 Final requested point count:", requested_count)
+        print("📝 Normalized final response length:", len(final_answer))
 
     print("=" * 70)
-    print(
-        "🎉 DOCUMENT EXPLANATION COMPLETE"
-    )
-    print(
-        "Gemini calls used: 2"
-    )
-    print(
-        "Final response length:",
-        len(final_answer)
-    )
+    print("🎉 DOCUMENT EXPLANATION COMPLETE")
+    print("Final response length:", len(final_answer))
     print("=" * 70)
 
     return final_answer

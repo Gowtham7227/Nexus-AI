@@ -581,6 +581,23 @@ def build_user_message(
     context,
     question
 ):
+    if not context or not context.strip():
+        return f"""
+USER QUESTION
+============================================================
+{question}
+============================================================
+
+TASK
+
+You are NexusAI, a helpful AI assistant. Answer the user's question directly, accurately, and concisely.
+
+Return ONLY valid JSON:
+
+{{
+  "answer": "complete final answer"
+}}
+"""
 
     return f"""
 DOCUMENT CONTEXT
@@ -647,13 +664,8 @@ def ask_local(
     context,
     question
 ):
-
-    if not context or not context.strip():
-
-        return (
-            "I couldn't find that information in the "
-            "uploaded document."
-        )
+    if not question or not question.strip():
+        return "Please enter a question."
 
     start_time = time.perf_counter()
 
@@ -941,10 +953,10 @@ def ask_local(
         # ----------------------------------------------------
 
         if not final_answer:
-
             return (
-                "I couldn't generate an answer from "
-                "the uploaded document."
+                "I couldn't generate an answer from the uploaded document."
+                if context and context.strip()
+                else "I couldn't generate an answer at this time."
             )
 
 

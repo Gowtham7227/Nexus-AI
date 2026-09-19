@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 /*
   NexusAI ChatInput
   UI changes:

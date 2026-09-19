@@ -1,10 +1,62 @@
+# Environment & Secrets
 .env
+.env.local
+.env.*.local
+
+# Python artifacts
 __pycache__/
-*.pyc
-auth.db
-chroma_db/
-uploads/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
 .venv/
 venv/
+ENV/
+env/
+
+# Databases & Runtime storage
+*.db
+*.sqlite
+*.sqlite3
+auth.db
+nexusai.db
+chroma_db/
+uploads/
+
+# Logs & Debug artifacts
+logs/
+*.log
+*.txt.bak
+upload_debug.txt
+audit_summary_results.json
+
+# IDE & OS files
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
+
+# Tools & Temporary binaries
+tools/
+powershell.bat
+powershell.cmd
+*.bat
+*.cmd
+

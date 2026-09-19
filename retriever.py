@@ -246,6 +246,14 @@ def detect_question_type(
         or "describe the document" in q
         or "explain the document" in q
         or "explain this document" in q
+        or "explain about the document" in q
+        or "explain about this document" in q
+        or "explain about document" in q
+        or "explain document" in q
+        or "explain this" in q
+        or "explain file" in q
+        or "about the document" in q
+        or "about this document" in q
         or "document overview" in q
         or "overview of the document" in q
         or "main purpose of the document" in q

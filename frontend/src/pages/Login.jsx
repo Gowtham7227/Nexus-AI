@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 import api from "../api/client";
 
 function Login() {
@@ -8,16 +9,30 @@ function Login() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const [forgotMode, setForgotMode] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendLoading, setResendLoading] = useState(false);
 
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   const clearStatus = () => {
     setMessage("");
@@ -118,6 +133,7 @@ function Login() {
       });
 
       setOtpSent(true);
+      setResendCooldown(30);
       setMessage(
         response.data?.message ||
           "If an account exists for this email, an OTP has been sent."
@@ -130,6 +146,42 @@ function Login() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || resendLoading || loading) return;
+    clearStatus();
+
+    if (!email.trim()) {
+      setError("Please enter your email address.");
+      return;
+    }
+
+    setResendLoading(true);
+
+    try {
+      const response = await api.post("/resend-otp", {
+        email: email.trim().toLowerCase(),
+      });
+
+      setResendCooldown(30);
+      setMessage(
+        response.data?.message ||
+          "A new OTP has been sent to your email."
+      );
+    } catch (requestError) {
+      console.error("Resend OTP error:", requestError);
+      const detail =
+        requestError.response?.data?.detail ||
+        "Unable to resend OTP right now. Please try again.";
+      setError(detail);
+      // If server returned a cooldown remaining message, keep or reset cooldown as appropriate
+      if (requestError.response?.status === 429) {
+        setResendCooldown((prev) => (prev > 0 ? prev : 30));
+      }
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -184,6 +236,8 @@ function Login() {
     setOtpSent(false);
     setOtp("");
     setNewPassword("");
+    setResendCooldown(0);
+    setResendLoading(false);
   };
 
   const backToLogin = () => {
@@ -192,12 +246,19 @@ function Login() {
     setOtpSent(false);
     setOtp("");
     setNewPassword("");
+    setResendCooldown(0);
+    setResendLoading(false);
   };
 
   const switchAuthMode = () => {
     clearStatus();
     setIsRegister((previous) => !previous);
     setPassword("");
+    setOtpSent(false);
+    setOtp("");
+    setNewPassword("");
+    setResendCooldown(0);
+    setResendLoading(false);
   };
 
   const pageStyle = {
@@ -527,20 +588,85 @@ function Login() {
                     autoComplete="one-time-code"
                   />
 
-                  <label style={{ ...labelStyle, marginTop: "18px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      marginTop: "6px",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={resendCooldown > 0 || resendLoading || loading}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        padding: 0,
+                        color:
+                          resendCooldown > 0 || resendLoading || loading
+                            ? "#94a3b8"
+                            : "#2563eb",
+                        cursor:
+                          resendCooldown > 0 || resendLoading || loading
+                            ? "not-allowed"
+                            : "pointer",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {resendLoading
+                        ? "Resending OTP..."
+                        : resendCooldown > 0
+                        ? `Resend OTP in ${resendCooldown}s`
+                        : "Resend OTP"}
+                    </button>
+                  </div>
+
+                  <label style={{ ...labelStyle, marginTop: "14px" }}>
                     New Password
                   </label>
-                  <input
-                    type="password"
-                    placeholder="Enter new password"
-                    value={newPassword}
-                    onChange={(event) => {
-                      setNewPassword(event.target.value);
-                      clearStatus();
-                    }}
-                    style={inputStyle}
-                    autoComplete="new-password"
-                  />
+                  <div style={{ position: "relative", width: "100%" }}>
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      placeholder="Enter new password"
+                      value={newPassword}
+                      onChange={(event) => {
+                        setNewPassword(event.target.value);
+                        clearStatus();
+                      }}
+                      style={{ ...inputStyle, paddingRight: "44px" }}
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword((prev) => !prev)}
+                      aria-label={showNewPassword ? "Hide password" : "Show password"}
+                      style={{
+                        position: "absolute",
+                        right: "12px",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "transparent",
+                        border: "none",
+                        padding: "6px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#64748b",
+                        borderRadius: "6px",
+                        outline: "none",
+                      }}
+                    >
+                      {showNewPassword ? (
+                        <FiEyeOff size={18} strokeWidth={2} />
+                      ) : (
+                        <FiEye size={18} strokeWidth={2} />
+                      )}
+                    </button>
+                  </div>
 
                   <button
                     type="submit"
@@ -588,17 +714,46 @@ function Login() {
               <label style={{ ...labelStyle, marginTop: "18px" }}>
                 Password
               </label>
-              <input
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(event) => {
-                  setPassword(event.target.value);
-                  clearStatus();
-                }}
-                style={inputStyle}
-                autoComplete={isRegister ? "new-password" : "current-password"}
-              />
+              <div style={{ position: "relative", width: "100%" }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    clearStatus();
+                  }}
+                  style={{ ...inputStyle, paddingRight: "44px" }}
+                  autoComplete={isRegister ? "new-password" : "current-password"}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  style={{
+                    position: "absolute",
+                    right: "12px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "transparent",
+                    border: "none",
+                    padding: "6px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#64748b",
+                    borderRadius: "6px",
+                    outline: "none",
+                  }}
+                >
+                  {showPassword ? (
+                    <FiEyeOff size={18} strokeWidth={2} />
+                  ) : (
+                    <FiEye size={18} strokeWidth={2} />
+                  )}
+                </button>
+              </div>
 
               {!isRegister && (
                 <div

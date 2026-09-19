@@ -1,4 +1,57 @@
 function RecentDocuments({ documents }) {
+  const getStatusBadge = (doc) => {
+    const status = doc?.processing_status || doc?.status || "ready";
+    if (status === "processing") {
+      return (
+        <span
+          style={{
+            background: "#fef3c7",
+            color: "#92400e",
+            padding: "5px 10px",
+            borderRadius: "20px",
+            fontSize: "12px",
+            fontWeight: "600",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
+          }}
+        >
+          <span style={{ animation: "spin 1.5s linear infinite", display: "inline-block" }}>🔄</span> Indexing...
+        </span>
+      );
+    }
+    if (status === "failed") {
+      return (
+        <span
+          style={{
+            background: "#fee2e2",
+            color: "#991b1b",
+            padding: "5px 10px",
+            borderRadius: "20px",
+            fontSize: "12px",
+            fontWeight: "600",
+          }}
+        >
+          ❌ Failed
+        </span>
+      );
+    }
+    return (
+      <span
+        style={{
+          background: "#dcfce7",
+          color: "#166534",
+          padding: "5px 10px",
+          borderRadius: "20px",
+          fontSize: "12px",
+          fontWeight: "600",
+        }}
+      >
+        ✓ Ready
+      </span>
+    );
+  };
+
   return (
     <div
       style={{
@@ -59,18 +112,7 @@ function RecentDocuments({ documents }) {
               </div>
             </div>
 
-            <span
-              style={{
-                background: "#dcfce7",
-                color: "#166534",
-                padding: "5px 10px",
-                borderRadius: "20px",
-                fontSize: "12px",
-                fontWeight: "600",
-              }}
-            >
-              Ready
-            </span>
+            {getStatusBadge(document)}
           </div>
         ))
       )}

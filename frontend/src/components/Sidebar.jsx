@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import "../styles/Sidebar.css";
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";

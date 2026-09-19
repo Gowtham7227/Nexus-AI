@@ -1,4 +1,14 @@
 import os
+import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+from typing import Optional, List, Dict, Any, Union
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
@@ -9,19 +19,22 @@ from langchain_huggingface import HuggingFaceEmbeddings
 # CONFIGURATION
 # ============================================================
 
-CHROMA_DIR = "chroma_db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHROMA_DIR = os.getenv("CHROMA_DIR")
+if not CHROMA_DIR:
+    local_chroma = os.path.join(BASE_DIR, "chroma_db")
+    alt_chroma = os.path.join(BASE_DIR, "..", "backend", "chroma_db")
+    if os.path.isdir(local_chroma) and os.listdir(local_chroma):
+        CHROMA_DIR = local_chroma
+    elif os.path.isdir(alt_chroma) and os.listdir(alt_chroma):
+        CHROMA_DIR = alt_chroma
+    else:
+        CHROMA_DIR = local_chroma
 
-EMBEDDING_MODEL_NAME = (
-    "sentence-transformers/all-MiniLM-L6-v2"
-)
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 120
-
-
-# ============================================================
-# EMBEDDING MODEL
-# ============================================================
 
 print("=" * 70)
 print("🔹 Loading HuggingFace embedding model...")
@@ -39,27 +52,21 @@ print("✅ Embedding model loaded")
 # CACHED CHROMA VECTOR STORE
 # ============================================================
 
-_vector_store = None
+_vector_store: Optional[Chroma] = None
 
-
-# ============================================================
-# GET VECTOR STORE
-# ============================================================
 
 def get_vector_store():
     """
-    Load the existing Chroma vector database once and reuse
-    the same Chroma object for all subsequent operations.
-
-    The database remains persistent on disk. This cache avoids
-    repeatedly creating a new Chroma wrapper for every question.
+    Return the persistent Chroma vector store.
+    The absolute path guarantees that the database is always
+    stored beside this Python file, regardless of the process cwd.
     """
-
     global _vector_store
 
     if _vector_store is not None:
-        print("⚡ Using cached Chroma database")
         return _vector_store
+
+    os.makedirs(CHROMA_DIR, exist_ok=True)
 
     print("=" * 70)
     print("🔹 Loading Chroma database...")
@@ -74,71 +81,32 @@ def get_vector_store():
     print("✅ Chroma database loaded and cached")
 
     try:
-        count = _vector_store._collection.count()
-
-        print(
-            "📊 Total chunks currently in Chroma:",
-            count,
-        )
-
-    except Exception as e:
-        print(
-            "⚠️ Could not read Chroma count:",
-            str(e),
-        )
+        print("📊 Total chunks currently in Chroma:",
+              _vector_store._collection.count())
+    except Exception as exc:
+        print("⚠️ Could not read Chroma count:", str(exc))
 
     return _vector_store
 
 
-# ============================================================
-# CREATE / UPDATE VECTOR STORE
-# ============================================================
+def create_vector_store(text_or_pages: Union[str, List[Dict[str, Any]], Dict[str, Any]], filename: str, user_id=None, document_id=None):
+    """
+    Split document text/pages into chunks and add them to Chroma with rich page metadata.
+    Supports:
+    - Raw text string
+    - List of structured page dicts: [{'page_number': 1, 'text': '...', 'extraction_method': 'native'|'ocr'}]
+    - Unified extraction dict from extract_document_content: {'text': '...', 'pages': [...], 'extraction_method': '...'}
 
-def create_vector_store(text, filename):
+    Existing chunks belonging to the same filename are removed first,
+    so re-uploading a document does not create duplicate chunks.
+    """
+    if text_or_pages is None:
+        raise ValueError("Document content is empty.")
 
-    print("\n")
-    print("=" * 70)
-    print("📚 VECTOR STORE CREATION")
-    print("=" * 70)
+    if not filename:
+        raise ValueError("Document filename is required.")
 
-    print("Filename:", filename)
-
-    # --------------------------------------------------------
-    # Validate input
-    # --------------------------------------------------------
-
-    if text is None:
-
-        print("❌ Text is None")
-
-        return None
-
-    text = str(text).strip()
-
-    print("Extracted text length:", len(text))
-
-    if not text:
-
-        print("❌ No text available for indexing")
-
-        return None
-
-    # --------------------------------------------------------
-    # Create chunks
-    # --------------------------------------------------------
-
-    print("-" * 70)
-    print("✂️ Creating document chunks...")
-    print(
-        "Chunk size:",
-        CHUNK_SIZE,
-    )
-
-    print(
-        "Chunk overlap:",
-        CHUNK_OVERLAP,
-    )
-
+    # Parse inputs into structured chunk items
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
@@ -153,261 +121,215 @@ def create_vector_store(text, filename):
         ],
     )
 
-    chunks = splitter.split_text(text)
+    chunks: List[str] = []
+    chunk_pages: List[int] = []
+    chunk_methods: List[str] = []
 
-    print(
-        "📦 Number of chunks created:",
-        len(chunks),
-    )
+    if isinstance(text_or_pages, dict):
+        pages_list = text_or_pages.get("pages", [])
+        default_method = text_or_pages.get("extraction_method", "native")
+        if pages_list:
+            for p in pages_list:
+                p_num = p.get("page_number", 1)
+                p_text = str(p.get("text", "")).strip()
+                p_method = p.get("extraction_method", default_method)
+                if p_text:
+                    p_chunks = splitter.split_text(p_text)
+                    for c in p_chunks:
+                        if c.strip():
+                            chunks.append(c)
+                            chunk_pages.append(p_num)
+                            chunk_methods.append(p_method)
+        else:
+            raw_text = str(text_or_pages.get("text", "")).strip()
+            if raw_text:
+                raw_chunks = splitter.split_text(raw_text)
+                for c in raw_chunks:
+                    if c.strip():
+                        chunks.append(c)
+                        chunk_pages.append(1)
+                        chunk_methods.append(default_method)
+
+    elif isinstance(text_or_pages, list):
+        for p in text_or_pages:
+            p_num = p.get("page_number", 1)
+            p_text = str(p.get("text", "")).strip()
+            p_method = p.get("extraction_method", "native")
+            if p_text:
+                p_chunks = splitter.split_text(p_text)
+                for c in p_chunks:
+                    if c.strip():
+                        chunks.append(c)
+                        chunk_pages.append(p_num)
+                        chunk_methods.append(p_method)
+
+    else:
+        raw_text = str(text_or_pages).strip()
+        if raw_text:
+            raw_chunks = splitter.split_text(raw_text)
+            for c in raw_chunks:
+                if c.strip():
+                    chunks.append(c)
+                    chunk_pages.append(1)
+                    chunk_methods.append("native")
 
     if not chunks:
+        raise ValueError("Document text is empty or no valid chunks were created.")
 
-        print("❌ No chunks were created")
+    print("=" * 70)
+    print("📚 VECTOR STORE CREATION")
+    print("=" * 70)
+    print("Filename:", filename)
+    print("User ID:", user_id)
+    print("Total Chunks:", len(chunks))
+    print("Chunk size:", CHUNK_SIZE)
+    print("Chunk overlap:", CHUNK_OVERLAP)
 
-        return None
+    MAX_INDEX_CHUNKS = 1500
+    if len(chunks) > MAX_INDEX_CHUNKS:
+        print(f"⚡ Document is exceptionally large ({len(chunks)} chunks). Indexing top {MAX_INDEX_CHUNKS} chunks for high-speed RAG retrieval.")
+        chunks = chunks[:MAX_INDEX_CHUNKS]
+        chunk_pages = chunk_pages[:MAX_INDEX_CHUNKS]
+        chunk_methods = chunk_methods[:MAX_INDEX_CHUNKS]
 
-    # --------------------------------------------------------
-    # Remove empty chunks
-    # --------------------------------------------------------
+    vector_store = get_vector_store()
 
-    chunks = [
-        chunk.strip()
-        for chunk in chunks
-        if chunk and chunk.strip()
-    ]
-
-    print(
-        "📦 Valid chunks after cleanup:",
-        len(chunks),
-    )
-
-    if not chunks:
-
-        print("❌ All chunks were empty")
-
-        return None
-
-    # --------------------------------------------------------
-    # Load Chroma
-    # --------------------------------------------------------
-
+    # Remove old chunks for this filename before replacing them.
     try:
-
-        vector_db = get_vector_store()
-
-        print("✅ Chroma database ready for indexing")
-
-    except Exception as e:
-
-        print(
-            "❌ Failed to open Chroma:",
-            str(e),
+        existing = vector_store._collection.get(
+            where={"filename": filename}
         )
-
-        raise
-
-    # --------------------------------------------------------
-    # Remove previous chunks for same document
-    # --------------------------------------------------------
-
-    print("-" * 70)
-    print("🔎 Checking existing chunks for:", filename)
-
-    try:
-
-        existing = vector_db._collection.get(
-            where={
-                "filename": filename
-            }
-        )
-
-        existing_ids = existing.get(
-            "ids",
-            []
-        )
+        existing_ids = existing.get("ids", []) if existing else []
 
         if existing_ids:
+            vector_store._collection.delete(ids=existing_ids)
+            print("🧹 Removed existing chunks:", len(existing_ids))
+    except Exception as exc:
+        print("⚠️ Existing chunk cleanup skipped:", str(exc))
 
-            print(
-                "🗑️ Existing chunks found:",
-                len(existing_ids),
-            )
+    metadatas = [
+        {
+            "filename": filename,
+            "source": filename,
+            "chunk_index": index,
+            "page_number": chunk_pages[index],
+            "extraction_method": chunk_methods[index],
+            "user_id": str(user_id) if user_id is not None else "",
+            "document_id": str(document_id) if document_id is not None else "",
+        }
+        for index in range(len(chunks))
+    ]
 
-            vector_db._collection.delete(
-                ids=existing_ids
-            )
+    ids = [
+        f"{filename}::chunk::{index}"
+        for index in range(len(chunks))
+    ]
 
-            print(
-                "✅ Old chunks removed"
-            )
+    # Optimized batch insertion with pre-computed embeddings
+    batch_size = 64
+    total_batches = (len(chunks) + batch_size - 1) // batch_size
 
+    for batch_idx in range(total_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, len(chunks))
+
+        batch_chunks = chunks[start_idx:end_idx]
+        batch_metadatas = metadatas[start_idx:end_idx]
+        batch_ids = ids[start_idx:end_idx]
+
+        # Generate embeddings in batch
+        batch_embeddings = embedding_model.embed_documents(batch_chunks)
+
+        # Direct Chroma upsert with pre-computed embeddings
+        vector_store._collection.upsert(
+            ids=batch_ids,
+            embeddings=batch_embeddings,
+            metadatas=batch_metadatas,
+            documents=batch_chunks,
+        )
+
+    # Invalidate BM25 index cache to ensure freshness
+    try:
+        from bm25_retriever import invalidate_document_bm25
+        invalidate_document_bm25(filename)
+    except Exception:
+        pass
+
+    print(f"✅ Document '{filename}' indexed successfully ({len(chunks)} chunks in {total_batches} batches)")
+    print("Chroma directory:", CHROMA_DIR)
+
+    return vector_store
+
+
+def delete_document_from_vector_store(filename: str) -> int:
+    """
+    Remove all Chroma vectors and invalidate BM25 cache for a document.
+    Enforces the right-to-forget policy. Returns number of deleted chunks.
+    """
+    if not filename:
+        return 0
+
+    vector_store = get_vector_store()
+    deleted_count = 0
+    try:
+        existing = vector_store._collection.get(
+            where={"filename": filename}
+        )
+        existing_ids = existing.get("ids", []) if existing else []
+        if existing_ids:
+            vector_store._collection.delete(ids=existing_ids)
+            deleted_count = len(existing_ids)
+            print(f"🗑️ Deleted vector chunks: {deleted_count} for {filename}")
+    except Exception as exc:
+        print(f"⚠️ Error removing vectors for {filename}:", str(exc))
+
+    try:
+        from bm25_retriever import invalidate_document_bm25
+        invalidate_document_bm25(filename)
+    except Exception:
+        pass
+
+    return deleted_count
+
+
+def search_documents(query, k=5, filename=None, user_id=None):
+    """
+    Similarity search across indexed documents.
+
+    If filename is supplied, restrict results to that document.
+    """
+    if not query or not str(query).strip():
+        return []
+
+    vector_store = get_vector_store()
+
+    where_filter = {}
+    if filename:
+        where_filter["filename"] = filename
+    if user_id is not None:
+        where_filter["user_id"] = str(user_id)
+
+    search_kwargs = {"k": k}
+    if where_filter:
+        if len(where_filter) == 1:
+            search_kwargs["filter"] = where_filter
         else:
-
-            print(
-                "ℹ️ No previous chunks found"
-            )
-
-    except Exception as e:
-
-        print(
-            "⚠️ Existing chunk cleanup failed:",
-            str(e),
-        )
-
-        # Do not stop indexing.
-        # We can still add the new document.
-
-    # --------------------------------------------------------
-    # Metadata
-    # --------------------------------------------------------
-
-    metadatas = []
-
-    for index in range(len(chunks)):
-
-        metadatas.append(
-            {
-                "filename": filename,
-                "chunk_index": index,
-                "total_chunks": len(chunks),
-            }
-        )
-
-    # --------------------------------------------------------
-    # Deterministic IDs
-    # --------------------------------------------------------
-
-    safe_filename = (
-        os.path.basename(filename)
-        .replace(" ", "_")
-    )
-
-    ids = []
-
-    for index in range(len(chunks)):
-
-        ids.append(
-            f"{safe_filename}__chunk_{index}"
-        )
-
-    # --------------------------------------------------------
-    # Add chunks
-    # --------------------------------------------------------
-
-    print("-" * 70)
-    print("🧠 Creating embeddings and storing chunks...")
+            search_kwargs["filter"] = {"$and": [{k: v} for k, v in where_filter.items()]}
 
     try:
-
-        vector_db.add_texts(
-            texts=chunks,
-            metadatas=metadatas,
-            ids=ids,
+        return vector_store.similarity_search(
+            str(query).strip(),
+            **search_kwargs,
         )
-
-        print(
-            "✅ Chunks successfully added to ChromaDB"
-        )
-
-    except Exception as e:
-
-        print(
-            "❌ Failed to add chunks to ChromaDB:",
-            str(e),
-        )
-
-        raise
-
-    # --------------------------------------------------------
-    # Verify document was actually stored
-    # --------------------------------------------------------
-
-    try:
-
-        verification = (
-            vector_db._collection.get(
-                where={
-                    "filename": filename
-                },
-                include=[
-                    "metadatas"
-                ],
+    except Exception:
+        # Fallback to single filter if complex query fails
+        if filename:
+            return vector_store.similarity_search(
+                str(query).strip(),
+                k=k,
+                filter={"filename": filename},
             )
+        return vector_store.similarity_search(
+            str(query).strip(),
+            k=k,
         )
-
-        stored_ids = verification.get(
-            "ids",
-            []
-        )
-
-        print("-" * 70)
-        print(
-            "🔍 INDEX VERIFICATION"
-        )
-
-        print(
-            "Filename:",
-            filename,
-        )
-
-        print(
-            "Expected chunks:",
-            len(chunks),
-        )
-
-        print(
-            "Stored chunks:",
-            len(stored_ids),
-        )
-
-        if len(stored_ids) == len(chunks):
-
-            print(
-                "✅ DOCUMENT INDEXED SUCCESSFULLY"
-            )
-
-        else:
-
-            print(
-                "⚠️ Stored chunk count does not match expected count"
-            )
-
-    except Exception as e:
-
-        print(
-            "⚠️ Verification failed:",
-            str(e),
-        )
-
-    # --------------------------------------------------------
-    # Total Chroma count
-    # --------------------------------------------------------
-
-    try:
-
-        total_count = (
-            vector_db._collection.count()
-        )
-
-        print("-" * 70)
-
-        print(
-            "📊 Total chunks in Chroma:",
-            total_count,
-        )
-
-    except Exception as e:
-
-        print(
-            "⚠️ Could not read total count:",
-            str(e),
-        )
-
-    print("=" * 70)
-    print(
-        "🎉 VECTOR STORE CREATION COMPLETE"
-    )
-    print("=" * 70)
-    print("\n")
-
-    return vector_db

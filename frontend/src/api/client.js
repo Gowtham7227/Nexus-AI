@@ -6,7 +6,13 @@ export const API_BASE_URL = (
 ).replace(/\/$/, "");
 
 export function getAuthToken() {
-  return localStorage.getItem("token") || localStorage.getItem("authToken");
+  return (
+    localStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    sessionStorage.getItem("token") ||
+    sessionStorage.getItem("authToken") ||
+    ""
+  );
 }
 
 export function getAuthHeaders(extraHeaders = {}) {
@@ -14,6 +20,17 @@ export function getAuthHeaders(extraHeaders = {}) {
   return token
     ? { ...extraHeaders, Authorization: `Bearer ${token}` }
     : extraHeaders;
+}
+
+export function clearAuth() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("authToken");
+  localStorage.removeItem("user");
+  localStorage.removeItem("currentUser");
+  sessionStorage.removeItem("token");
+  sessionStorage.removeItem("authToken");
+  sessionStorage.removeItem("user");
+  sessionStorage.removeItem("currentUser");
 }
 
 const api = axios.create({
@@ -34,11 +51,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("authToken");
-      localStorage.removeItem("user");
-      localStorage.removeItem("currentUser");
-      if (window.location.pathname !== "/login") {
+      clearAuth();
+      if (window.location.pathname !== "/login" && window.location.pathname !== "/") {
         window.location.assign("/login");
       }
     }
@@ -47,3 +61,4 @@ api.interceptors.response.use(
 );
 
 export default api;
+

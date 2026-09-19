@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from "react";
 import api from "../api/client";
 
@@ -42,6 +41,20 @@ function Documents() {
     }
   }, []);
 
+  useEffect(() => {
+    const isPending = (s) => ["processing", "extracting", "ocr_processing", "indexing"].includes(s);
+    const hasProcessing = documents.some(
+      (doc) => isPending(doc.processing_status) || isPending(doc.status)
+    );
+    if (!hasProcessing) return;
+
+    const interval = setInterval(() => {
+      fetchDocuments();
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [documents]);
+
   const handleDocumentSelect = (filename) => {
     setSelectedDocuments((previous) => {
       const updated = previous.includes(filename)
@@ -66,6 +79,37 @@ function Documents() {
   const handleStartChat = () => {
     if (selectedDocuments.length === 0) {
       alert("Please select at least one document.");
+      return;
+    }
+
+    const isPending = (s) => ["processing", "extracting", "ocr_processing", "indexing"].includes(s);
+    const unreadyDocs = documents.filter(
+      (doc) =>
+        selectedDocuments.includes(doc.filename) &&
+        (isPending(doc.processing_status) || isPending(doc.status))
+    );
+
+    if (unreadyDocs.length > 0) {
+      alert(
+        `Please wait! The following document(s) are still being processed/indexed in the background:\n${unreadyDocs
+          .map((d) => `• ${d.filename}`)
+          .join("\n")}`
+      );
+      return;
+    }
+
+    const failedDocs = documents.filter(
+      (doc) =>
+        selectedDocuments.includes(doc.filename) &&
+        (doc.processing_status === "failed" || doc.status === "failed")
+    );
+
+    if (failedDocs.length > 0) {
+      alert(
+        `The following document(s) failed indexing and cannot be used in chat:\n${failedDocs
+          .map((d) => `• ${d.filename}`)
+          .join("\n")}`
+      );
       return;
     }
 
@@ -504,17 +548,82 @@ function Documents() {
           gap: 5px;
           padding: 5px 9px;
           border-radius: 999px;
-          background: #dcfce7;
-          color: #166534;
           font-size: 11px;
           font-weight: 800;
+        }
+
+        .nx-status-ready {
+          background: #dcfce7;
+          color: #166534;
+        }
+
+        .nx-status-ready .nx-status-dot {
+          background: #16a34a;
+        }
+
+        .nx-status-processing {
+          background: #fef3c7;
+          color: #92400e;
+        }
+
+        .nx-status-processing .nx-status-dot {
+          background: #d97706;
+          animation: nx-dot-pulse 1.2s infinite ease-in-out;
+        }
+
+        .nx-status-failed {
+          background: #fee2e2;
+          color: #991b1b;
+        }
+
+        
+        .nx-privacy-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 3px 8px;
+          border-radius: 999px;
+          font-size: 10.5px;
+          font-weight: 750;
+        }
+
+        .nx-privacy-low {
+          background: rgba(16, 185, 129, 0.12);
+          color: #059669;
+          border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+
+        .nx-privacy-medium {
+          background: rgba(234, 179, 8, 0.12);
+          color: #b45309;
+          border: 1px solid rgba(234, 179, 8, 0.25);
+        }
+
+        .nx-privacy-high {
+          background: rgba(249, 115, 22, 0.12);
+          color: #c2410c;
+          border: 1px solid rgba(249, 115, 22, 0.25);
+        }
+
+        .nx-privacy-critical {
+          background: rgba(239, 68, 68, 0.12);
+          color: #dc2626;
+          border: 1px solid rgba(239, 68, 68, 0.25);
+        }
+
+        .nx-status-failed .nx-status-dot {
+          background: #dc2626;
+        }
+
+        @keyframes nx-dot-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.35; transform: scale(0.8); }
         }
 
         .nx-status-dot {
           width: 6px;
           height: 6px;
           border-radius: 50%;
-          background: #16a34a;
         }
 
         .nx-document-actions {
@@ -760,6 +869,7 @@ function Documents() {
               ) : (
                 filteredDocuments.map((item, index) => {
                   const isSelected = selectedDocuments.includes(item.filename);
+                  const docStatus = item.processing_status || item.status || "ready";
 
                   return (
                     <div
@@ -789,16 +899,59 @@ function Documents() {
                           <div className="nx-file-meta">
                             <span>{formatSize(item.size)}</span>
                             <span className="nx-dot">•</span>
-                            <span>Ready for AI</span>
+                            <span>
+                              {docStatus === "ocr_processing"
+                                ? "Running Local OCR..."
+                                : docStatus === "extracting"
+                                ? "Extracting text..."
+                                : docStatus === "indexing" || docStatus === "processing"
+                                ? "Indexing chunks..."
+                                : docStatus === "failed"
+                                ? "Indexing failed"
+                                : "Ready for AI"}
+                            </span>
+                            {item.ocr_used && (
+                              <>
+                                <span className="nx-dot">•</span>
+                                <span className="nx-privacy-badge nx-privacy-medium" title="Processed with Local OCR">
+                                  🔍 OCR
+                                </span>
+                              </>
+                            )}
+                            {item.privacy_risk && (
+                              <>
+                                <span className="nx-dot">•</span>
+                                <span className={`nx-privacy-badge nx-privacy-${(item.privacy_risk || 'low').toLowerCase()}`} title={item.privacy_details ? "Privacy findings detected" : "Privacy scan clean"}>
+                                  🛡️ {item.privacy_risk}
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
 
                       <div className="nx-document-actions">
-                        <span className="nx-status">
-                          <span className="nx-status-dot" />
-                          Ready
-                        </span>
+                        {docStatus === "ocr_processing" ? (
+                          <span className="nx-status nx-status-processing" title="Performing local OCR page processing">
+                            <span className="nx-status-dot" />
+                            OCR...
+                          </span>
+                        ) : docStatus === "extracting" || docStatus === "indexing" || docStatus === "processing" ? (
+                          <span className="nx-status nx-status-processing">
+                            <span className="nx-status-dot" />
+                            Indexing...
+                          </span>
+                        ) : docStatus === "failed" ? (
+                          <span className="nx-status nx-status-failed" title={item.error || "Indexing failed"}>
+                            <span className="nx-status-dot" />
+                            Failed
+                          </span>
+                        ) : (
+                          <span className="nx-status nx-status-ready">
+                            <span className="nx-status-dot" />
+                            Ready
+                          </span>
+                        )}
 
                         <button
                           className="nx-action nx-action-view"

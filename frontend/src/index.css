@@ -362,3 +362,104 @@ article {
   .nx-stat-card { min-height: 150px; }
   .nx-dashboard-panel { padding: 18px; }
 }
+
+/* ============================================================
+   Document Selector & Dialog Modal Contrast Hardening
+   ============================================================ */
+:root[data-theme="dark"] .nx-doc-modal-header,
+:root[data-theme="dark"] .nx-doc-modal-search-wrap,
+:root[data-theme="dark"] .nx-doc-modal-list {
+  background-color: var(--nx-surface) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-card {
+  background-color: var(--nx-surface) !important;
+  border-color: var(--nx-border) !important;
+  color: var(--nx-text) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-search-input {
+  background-color: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+  border-color: var(--nx-border) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-search-input::placeholder {
+  color: var(--nx-text-muted) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-title {
+  color: var(--nx-text) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-subtitle {
+  color: var(--nx-text-muted) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-name {
+  color: var(--nx-text) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-row {
+  background-color: transparent !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-row:hover {
+  background-color: var(--nx-surface-2) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-row.selected {
+  background-color: var(--nx-primary-soft) !important;
+  border-color: var(--nx-primary-border) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-row.selected .nx-doc-modal-name {
+  color: var(--nx-primary) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-footer {
+  background-color: var(--nx-surface-2) !important;
+  border-color: var(--nx-border) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-btn-cancel {
+  background-color: var(--nx-surface) !important;
+  color: var(--nx-text) !important;
+  border-color: var(--nx-border) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-btn-clear {
+  color: var(--nx-text-muted) !important;
+}
+
+:root[data-theme="dark"] .nx-doc-modal-btn-clear:hover {
+  color: var(--nx-text) !important;
+  background-color: var(--nx-surface-3) !important;
+}
+
+
+/* Dark Theme support for Top-Right Copy Button & Toast */
+:root[data-theme="dark"] .nx-ai-copy-btn {
+  background-color: var(--nx-surface-2) !important;
+  border-color: var(--nx-border) !important;
+  color: var(--nx-text-muted) !important;
+}
+
+:root[data-theme="dark"] .nx-ai-copy-btn:hover {
+  background-color: var(--nx-primary-soft) !important;
+  color: var(--nx-primary) !important;
+  border-color: var(--nx-primary-border) !important;
+}
+
+:root[data-theme="dark"] .nx-ai-copy-btn.copied {
+  background-color: rgba(22, 163, 74, 0.2) !important;
+  color: #4ade80 !important;
+  border-color: rgba(74, 222, 128, 0.4) !important;
+}
+
+:root[data-theme="dark"] .nx-copy-toast {
+  background: var(--nx-surface-2) !important;
+  color: var(--nx-text) !important;
+  border: 1px solid var(--nx-border) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+}

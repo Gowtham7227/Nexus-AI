@@ -1,5 +1,24 @@
+import os
+import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 from retriever import retrieve_context
-from chatbot import ask_gemini
+from advanced_rag import NexusAdvancedRAG
+from privacy_scanner import PrivacyScanner, OutputPrivacyGuard
+from model_provider import get_model_provider, GeminiModelProvider, LocalQwenModelProvider
+from vector_store import delete_document_from_vector_store
+from chatbot import (
+    ask_gemini,
+    ask_gemini_general,
+)
 from document_summary import explain_document
 from local_llm import (
     ask_local,
@@ -12,6 +31,7 @@ from fastapi import (
     UploadFile,
     File,
     Query,
+    BackgroundTasks,
 )
 
 from fastapi.responses import (
@@ -31,6 +51,16 @@ from auth import (
     get_user_by_email,
     update_password,
     decode_access_token,
+    AUTH_DB,
+    create_conversation,
+    get_user_conversations,
+    get_conversation,
+    update_conversation_title,
+    delete_conversation,
+    save_message,
+    touch_conversation,
+    set_conversation_documents,
+    generate_conversation_title,
 )
 
 import shutil
@@ -78,19 +108,23 @@ app.add_middleware(
 )
 
 
-# ============================================================
-# UPLOAD FOLDER
-# ============================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 
-UPLOAD_FOLDER = "uploads"
-
-# Maximum size for a single uploaded document.
-MAX_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 os.makedirs(
     UPLOAD_FOLDER,
     exist_ok=True,
 )
+
+print("=" * 70)
+print("🚀 NexusAI Backend Starting...")
+print("📂 Base Directory :", BASE_DIR)
+print("📂 Upload Folder  :", UPLOAD_FOLDER)
+print(f"📦 Max Upload Size: {MAX_UPLOAD_SIZE_MB} MB ({MAX_UPLOAD_SIZE_BYTES} bytes)")
+print("=" * 70)
 
 
 # ============================================================
@@ -122,13 +156,96 @@ def get_current_user(
 
 @app.get("/")
 def home():
-
     return {
-        "message":
-            "Welcome to NexusAI Backend 🚀",
+        "message": "Welcome to NexusAI Backend 🚀",
+        "status": "running",
+    }
 
-        "status":
-            "running",
+
+@app.get("/api/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "NexusAI Backend",
+        "max_upload_size_mb": MAX_UPLOAD_SIZE_MB,
+        "active_gemini_model": os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
+        "base_dir": BASE_DIR,
+    }
+
+
+@app.get("/api/test-gemini")
+def api_test_gemini():
+    from gemini_service import test_direct_gemini, CURRENT_MODEL, CANDIDATE_MODELS, SDK_AVAILABLE
+    success, result = test_direct_gemini()
+    return {
+        "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
+        "sdk": "google-genai",
+        "sdk_available": SDK_AVAILABLE,
+        "active_model": CURRENT_MODEL,
+        "candidate_models": CANDIDATE_MODELS,
+        "direct_gemini_test": "PASS" if success else "FAIL",
+        "response_sample": result,
+    }
+
+
+@app.get("/api/run-comprehensive-audit")
+def api_run_comprehensive_audit():
+    import comprehensive_audit
+    results = comprehensive_audit.run_all_audits()
+    passed = sum(1 for k, v in results.items() if v["status"] == "PASS")
+    return {
+        "total_checks": len(results),
+        "passed": passed,
+        "failed": len(results) - passed,
+        "all_passed": passed == len(results),
+        "details": results,
+    }
+
+
+
+@app.get("/api/package-project")
+def package_project():
+    """Package canonical NexusAI source code cleanly into NexusAI-FINAL-WORKING.zip"""
+    target_zip = os.path.abspath(os.path.join(BASE_DIR, "..", "NexusAI-FINAL-WORKING.zip"))
+    
+    excluded_dirs = {
+        "node_modules", "venv", ".venv", "__pycache__", ".git", "dist",
+        "chroma_db", "uploads", "logs", ".idea", ".vscode"
+    }
+    excluded_extensions = {".pyc", ".db", ".sqlite", ".sqlite3", ".log", ".tmp"}
+    excluded_filenames = {".env", "text_diagnostic.txt", "upload_debug.txt", "test_file.txt"}
+
+    packaged_files = []
+
+    with zipfile.ZipFile(target_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(BASE_DIR):
+            # Prune excluded directories
+            dirs[:] = [d for d in dirs if d not in excluded_dirs and not d.startswith(".")]
+
+            for file in files:
+                if file in excluded_filenames:
+                    continue
+                ext = os.path.splitext(file)[1].lower()
+                if ext in excluded_extensions:
+                    continue
+                
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, BASE_DIR)
+                
+                # Double check no secret in file name
+                if ".env" in rel_path and not rel_path.endswith(".env.example"):
+                    continue
+
+                zf.write(full_path, os.path.join("NexusAI", rel_path))
+                packaged_files.append(rel_path)
+
+    zip_size_bytes = os.path.getsize(target_zip)
+    return {
+        "status": "success",
+        "zip_path": target_zip,
+        "zip_size_mb": round(zip_size_bytes / (1024 * 1024), 2),
+        "total_files": len(packaged_files),
+        "sample_files": packaged_files[:20],
     }
 
 
@@ -200,7 +317,7 @@ def register(request: RegisterRequest):
                 detail="An account with this email already exists.",
             )
 
-        print("❌ Registration Error:", str(e))
+        print("âŒ Registration Error:", str(e))
 
         raise HTTPException(
             status_code=500,
@@ -307,64 +424,21 @@ def login(request: LoginRequest):
 # PASSWORD RESET / OTP
 # ============================================================
 
-from otp import generate_otp, verify_otp
+from otp import (
+    generate_or_resend_otp,
+    validate_otp,
+    consume_and_verify_otp,
+    clear_otp,
+    get_resend_cooldown_remaining,
+)
 from email_service import send_otp_email
 
 
-OTP_MAX_FAILED_ATTEMPTS = 5
-OTP_LOCKOUT_SECONDS = 10 * 60
-
-_otp_attempts = {}
-_otp_attempts_lock = threading.Lock()
-
-
-def _otp_key(email: str) -> str:
-    return email.strip().lower()
-
-
-def reset_otp_attempts(email: str) -> None:
-    key = _otp_key(email)
-    with _otp_attempts_lock:
-        _otp_attempts.pop(key, None)
-
-
-def check_otp_rate_limit(email: str) -> None:
-    key = _otp_key(email)
-    now = time.time()
-
-    with _otp_attempts_lock:
-        record = _otp_attempts.get(key)
-
-        if record is None:
-            return
-
-        failed_attempts, first_failed_at = record
-
-        if now - first_failed_at >= OTP_LOCKOUT_SECONDS:
-            _otp_attempts.pop(key, None)
-            return
-
-        if failed_attempts >= OTP_MAX_FAILED_ATTEMPTS:
-            raise HTTPException(
-                status_code=429,
-                detail="Too many invalid OTP attempts. Please request a new OTP and try again later.",
-            )
-
-
-def record_failed_otp_attempt(email: str) -> None:
-    key = _otp_key(email)
-    now = time.time()
-
-    with _otp_attempts_lock:
-        record = _otp_attempts.get(key)
-
-        if record is None or now - record[1] >= OTP_LOCKOUT_SECONDS:
-            _otp_attempts[key] = (1, now)
-        else:
-            _otp_attempts[key] = (record[0] + 1, record[1])
-
-
 class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResendOTPRequest(BaseModel):
     email: str
 
 
@@ -391,24 +465,70 @@ def forgot_password(request: ForgotPasswordRequest):
 
     user = get_user_by_email(email)
 
-    # Do not reveal whether an account exists.
+    # If user exists, generate OTP and dispatch email
     if user is not None:
-        otp = generate_otp(email)
-        reset_otp_attempts(email)
+        try:
+            otp = generate_or_resend_otp(email, is_resend=False)
+        except HTTPException:
+            raise
+        except Exception as e:
+            print("❌ Failed to generate OTP:", str(e))
+            raise HTTPException(
+                status_code=500,
+                detail="Unable to generate OTP. Please try again.",
+            )
 
         try:
             send_otp_email(email, otp)
         except Exception as e:
-            if isinstance(e, HTTPException):
-                print("❌ OTP Email Error:", str(e))
-            else:
-                print("❌ OTP Email Error:", str(e))
-
-            # Do not reveal whether the email belongs to an account.
-            # Return the same generic response as the non-existent-account case.
+            clear_otp(email)
+            print("❌ OTP Email Dispatch Failed:", str(e))
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to send OTP email right now. Please try again.",
+            )
 
     return {
         "message": "If an account exists for this email, an OTP has been sent."
+    }
+
+
+@app.post("/resend-otp")
+def resend_otp_endpoint(request: ResendOTPRequest):
+    email = request.email.strip().lower()
+
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Email is required.",
+        )
+
+    user = get_user_by_email(email)
+
+    if user is not None:
+        try:
+            otp = generate_or_resend_otp(email, is_resend=True)
+        except HTTPException:
+            raise
+        except Exception as e:
+            print("❌ Failed to resend OTP:", str(e))
+            raise HTTPException(
+                status_code=500,
+                detail="Unable to generate new OTP. Please try again.",
+            )
+
+        try:
+            send_otp_email(email, otp)
+        except Exception as e:
+            clear_otp(email)
+            print("❌ Resend OTP Email Dispatch Failed:", str(e))
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to send OTP email right now. Please try again.",
+            )
+
+    return {
+        "message": "A new OTP has been sent to your email."
     }
 
 
@@ -423,16 +543,22 @@ def verify_otp_endpoint(request: VerifyOTPRequest):
             detail="Email and OTP are required.",
         )
 
-    check_otp_rate_limit(email)
-
-    if not verify_otp(email, otp):
-        record_failed_otp_attempt(email)
+    try:
+        is_valid = validate_otp(email, otp)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("❌ OTP Validation Error:", str(e))
         raise HTTPException(
             status_code=400,
             detail="Invalid or expired OTP.",
         )
 
-    reset_otp_attempts(email)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired OTP.",
+        )
 
     return {
         "message": "OTP verified successfully.",
@@ -457,16 +583,22 @@ def reset_password(request: ResetPasswordRequest):
             detail="Password must be at least 6 characters.",
         )
 
-    check_otp_rate_limit(email)
-
-    if not verify_otp(email, otp):
-        record_failed_otp_attempt(email)
+    try:
+        is_valid = consume_and_verify_otp(email, otp)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("❌ OTP Consumption Error:", str(e))
         raise HTTPException(
             status_code=400,
             detail="Invalid or expired OTP.",
         )
 
-    reset_otp_attempts(email)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired OTP.",
+        )
 
     user = get_user_by_email(email)
 
@@ -517,15 +649,21 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 }
 
 
-def validate_uploaded_content(filename: str, content: bytes) -> None:
-    """Validate that uploaded bytes match the declared supported document type."""
+def validate_uploaded_content(file_path: str, filename: str) -> None:
+    """Validate that uploaded file matches the declared supported document type."""
     extension = os.path.splitext(filename)[1].lower()
 
     if extension == ".txt":
         return
 
     if extension == ".pdf":
-        if not content.startswith(b"%PDF-"):
+        with open(file_path, "rb") as f:
+            header = f.read(1024)
+        if not header.startswith(b"%PDF-"):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=415,
                 detail="Invalid PDF file content.",
@@ -533,13 +671,21 @@ def validate_uploaded_content(filename: str, content: bytes) -> None:
         return
 
     if extension in {".docx", ".pptx", ".xlsx"}:
-        if not zipfile.is_zipfile(io.BytesIO(content)):
+        if not zipfile.is_zipfile(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=415,
                 detail=f"Invalid {extension[1:].upper()} file content.",
             )
         return
 
+    try:
+        os.remove(file_path)
+    except Exception:
+        pass
     raise HTTPException(
         status_code=415,
         detail="Unsupported file type.",
@@ -575,10 +721,20 @@ def validate_upload_filename(filename: str) -> str:
     return safe_filename
 
 def get_safe_document_path(filename: str) -> str:
-    """Return a document path guaranteed to remain inside UPLOAD_FOLDER."""
+    """Return a document path guaranteed to remain inside UPLOAD_FOLDER or fallback uploads."""
     safe_filename = validate_upload_filename(filename)
     upload_root = os.path.abspath(UPLOAD_FOLDER)
     file_path = os.path.abspath(os.path.join(upload_root, safe_filename))
+
+    if os.path.isfile(file_path):
+        return file_path
+
+    # Check sibling directory uploads fallback
+    for alt_parent in ["backend", "NexusAI-GitHub"]:
+        alt_root = os.path.abspath(os.path.join(BASE_DIR, "..", alt_parent, "uploads"))
+        alt_path = os.path.abspath(os.path.join(alt_root, safe_filename))
+        if os.path.isfile(alt_path):
+            return alt_path
 
     if os.path.commonpath([upload_root, file_path]) != upload_root:
         raise HTTPException(status_code=400, detail="Invalid document path.")
@@ -587,46 +743,176 @@ def get_safe_document_path(filename: str) -> str:
 
 
 # ============================================================
+# BACKGROUND DOCUMENT PROCESSING WORKER
+# ============================================================
+
+def process_document_indexing_background(safe_filename: str, user_id: int):
+    """
+    Asynchronous background worker for text extraction, OCR, chunking, and Chroma indexing.
+    Updates processing_status safely without blocking upload response.
+    """
+    file_path = get_safe_document_path(safe_filename)
+    t_start = time.time()
+    print("=" * 70)
+    print(f"🔄 [ASYNC INDEXING START] File: {safe_filename} | User ID: {user_id}")
+    print("=" * 70)
+
+    processing_status = "ready"
+    processing_error = None
+    vector_status = "indexed"
+    extraction_method = "native"
+    ocr_used = 0
+    ocr_page_count = 0
+    page_count = 0
+    extracted_char_count = 0
+    privacy_risk = "LOW"
+    privacy_details = None
+
+    try:
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"Uploaded file '{safe_filename}' not found on disk.")
+
+        # Update status to extracting in DB
+        try:
+            conn = sqlite3.connect(AUTH_DB)
+            conn.execute(
+                "UPDATE documents SET processing_status = 'extracting' WHERE user_id = ? AND filename = ?",
+                (user_id, safe_filename),
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+        t_ext = time.time()
+        from utils import extract_document_content
+        extracted_data = extract_document_content(file_path)
+        ext_time = time.time() - t_ext
+
+        extracted_text = extracted_data.get("text", "")
+        pages = extracted_data.get("pages", [])
+        extraction_method = extracted_data.get("extraction_method", "native")
+        ocr_used = 1 if extracted_data.get("ocr_used") else 0
+        page_count = extracted_data.get("page_count", len(pages))
+        ocr_page_count = extracted_data.get("ocr_page_count", 0)
+        extracted_char_count = extracted_data.get("char_count", len(extracted_text))
+
+        print(f"📄 [ASYNC EXTRACTION] File: {safe_filename} | Chars: {extracted_char_count} | Pages: {page_count} | Method: {extraction_method} | Time: {ext_time:.3f}s")
+
+        if extracted_text and extracted_text.strip():
+            # Run privacy scanner on extracted text
+            try:
+                scanner = PrivacyScanner()
+                risk_level, findings = scanner.scan_document(extracted_text)
+                privacy_risk = risk_level
+                import json
+                privacy_details = json.dumps([f.to_dict() for f in findings])
+                print(f"🛡️ [PRIVACY SCAN] File: {safe_filename} | Risk: {privacy_risk} | Findings: {len(findings)}")
+            except Exception as scan_err:
+                print(f"⚠️ [PRIVACY SCAN ERROR] File: {safe_filename} | Error: {str(scan_err)}")
+
+            # Update status to indexing
+            try:
+                conn = sqlite3.connect(AUTH_DB)
+                conn.execute(
+                    "UPDATE documents SET processing_status = 'indexing' WHERE user_id = ? AND filename = ?",
+                    (user_id, safe_filename),
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+            t_vec = time.time()
+            create_vector_store(extracted_data, safe_filename, user_id=user_id)
+            vec_time = time.time() - t_vec
+            print(f"⚡ [ASYNC CHROMA INDEXED] File: {safe_filename} | Time: {vec_time:.3f}s")
+            processing_status = "ready"
+            processing_error = None
+            vector_status = "indexed"
+        else:
+            processing_status = "ready"
+            processing_error = "No extractable text found in document."
+            vector_status = "none"
+            print(f"⚠️ [ASYNC INDEXING] File: {safe_filename} contains no extractable text.")
+
+    except Exception as e:
+        elapsed = time.time() - t_start
+        print(f"❌ [ASYNC INDEXING FAILED] File: {safe_filename} | Error: {type(e).__name__} - {str(e)} in {elapsed:.2f}s")
+        processing_status = "failed"
+        processing_error = "Document indexing failed. Please try again."
+        vector_status = "failed"
+        try:
+            delete_document_from_vector_store(safe_filename)
+        except Exception:
+            pass
+
+    # Persist final status to database
+    try:
+        conn = sqlite3.connect(AUTH_DB)
+        try:
+            conn.execute(
+                """
+                UPDATE documents
+                SET processing_status = ?,
+                    processing_error = ?,
+                    vector_status = ?,
+                    privacy_risk = COALESCE(?, privacy_risk),
+                    privacy_details = COALESCE(?, privacy_details),
+                    extraction_method = ?,
+                    ocr_used = ?,
+                    ocr_page_count = ?,
+                    page_count = ?,
+                    extracted_char_count = ?
+                WHERE user_id = ? AND filename = ?
+                """,
+                (
+                    processing_status,
+                    processing_error,
+                    vector_status,
+                    privacy_risk,
+                    privacy_details,
+                    extraction_method,
+                    ocr_used,
+                    ocr_page_count,
+                    page_count,
+                    extracted_char_count,
+                    user_id,
+                    safe_filename,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        total_time = time.time() - t_start
+        print(f"✅ [ASYNC INDEXING COMPLETE] File: {safe_filename} | Status: {processing_status} | Method: {extraction_method} | Total Time: {total_time:.3f}s")
+        print("=" * 70)
+    except Exception as db_err:
+        print(f"❌ [ASYNC DB UPDATE ERROR] File: {safe_filename} | Error: {str(db_err)}")
+
+
+# ============================================================
 # UPLOAD DOCUMENT
 # ============================================================
 
 @app.post("/upload")
 def upload_file(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user=Depends(get_current_user),
 ):
-
     try:
+        t_upload_start = time.time()
 
         # ----------------------------------------------------
-        # Save uploaded file
+        # Validate Filename & Path
         # ----------------------------------------------------
-
         original_filename = file.filename or ""
-        safe_filename = validate_upload_filename(
-            original_filename
-        )
-        file_path = get_safe_document_path(
-            safe_filename
-        )
+        safe_filename = validate_upload_filename(original_filename)
+        file_path = get_safe_document_path(safe_filename)
 
-        # Read at most the configured maximum into memory so size and content
-        # validation happen before anything is written to disk.
-        uploaded_content = file.file.read(MAX_UPLOAD_SIZE_BYTES + 1)
-        if len(uploaded_content) > MAX_UPLOAD_SIZE_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail="File too large. Maximum allowed upload size is 15 MB.",
-            )
-
-        validate_uploaded_content(
-            safe_filename,
-            uploaded_content,
-        )
-
-        # The current vector store is keyed by filename. Do not allow two
-        # different users to use the same filename and collide physically.
-        conn = sqlite3.connect("auth.db")
+        # Collision prevention across different users
+        conn = sqlite3.connect(AUTH_DB)
         try:
             filename_in_use = conn.execute(
                 """
@@ -649,210 +935,149 @@ def upload_file(
                 detail="A document with this filename already exists. Please rename the file and upload again.",
             )
 
+        # ----------------------------------------------------
+        # Stream file to disk with 100 MB size enforcement
+        # ----------------------------------------------------
+        total_bytes = 0
+        chunk_size = 1024 * 1024  # 1 MB chunk buffer
+        with open(file_path, "wb") as buffer:
+            while True:
+                chunk = file.file.read(chunk_size)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_UPLOAD_SIZE_BYTES:
+                    buffer.close()
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File is too large. Maximum allowed size is {MAX_UPLOAD_SIZE_MB} MB.",
+                    )
+                buffer.write(chunk)
 
         # ----------------------------------------------------
-        # Save validated upload content
+        # Security Content Validation
         # ----------------------------------------------------
+        validate_uploaded_content(file_path, safe_filename)
 
-        # The content was already read above for size and signature validation.
-        # Write those exact validated bytes instead of reading file.file again,
-        # because the upload stream is now at EOF.
-        with open(
-            file_path,
-            "wb",
-        ) as buffer:
-            buffer.write(uploaded_content)
+        file_size_bytes = os.path.getsize(file_path)
+        file_extension = os.path.splitext(safe_filename)[1].lower()
 
         # ----------------------------------------------------
-        # Save document ownership
+        # Initialize Document Metadata with status 'processing'
         # ----------------------------------------------------
-
-        conn = sqlite3.connect("auth.db")
-
-        existing = conn.execute(
-            """
-            SELECT id
-            FROM documents
-            WHERE user_id = ? AND filename = ?
-            LIMIT 1
-            """,
-            (
-                current_user["user_id"],
-                safe_filename,
-            ),
-        ).fetchone()
-
-        if existing is None:
-            conn.execute(
+        conn = sqlite3.connect(AUTH_DB)
+        try:
+            existing = conn.execute(
                 """
-                INSERT INTO documents (
-                    user_id,
-                    filename,
-                    created_at
-                )
-                VALUES (?, ?, CURRENT_TIMESTAMP)
+                SELECT id
+                FROM documents
+                WHERE user_id = ? AND filename = ?
+                LIMIT 1
                 """,
-                (
-                    current_user["user_id"],
-                    safe_filename,
-                ),
-            )
-        else:
-            conn.execute(
-                """
-                UPDATE documents
-                SET created_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (existing[0],),
-            )
+                (current_user["user_id"], safe_filename),
+            ).fetchone()
 
-        conn.commit()
-        conn.close()
-
-
-        # ----------------------------------------------------
-        # Extract text
-        # ----------------------------------------------------
-
-        extracted_text = extract_text(
-            file_path
-        )
-
-
-        print("=" * 70)
-
-        print(
-            "📄 DOCUMENT UPLOADED:",
-            safe_filename,
-        )
-
-        print(
-            "📦 FILE SIZE:",
-            round(
-                os.path.getsize(
-                    file_path
-                ) / (1024 * 1024),
-                2,
-            ),
-            "MB",
-        )
-
-        print(
-            "📝 EXTRACTED TEXT LENGTH:",
-            len(extracted_text),
-        )
-
-        print("=" * 70)
-
-
-        # ----------------------------------------------------
-        # Create vector store
-        # ----------------------------------------------------
-
-        if extracted_text.strip():
-
-            try:
-
-                create_vector_store(
-                    extracted_text,
-                    safe_filename,
-                )
-
-
-                print(
-                    "✅ ChromaDB created successfully"
-                )
-
-
-            except Exception as e:
-
-
-                if isinstance(e, HTTPException):
-
-
-                    raise
-                print(
-                    "❌ Vector Store Error:",
-                    str(e),
-                )
-
-
-                return {
-                    "message":
-                        "File uploaded, but document processing failed.",
-
-                    "filename":
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO documents (
+                        user_id,
+                        filename,
+                        original_filename,
+                        file_size,
+                        file_type,
+                        created_at,
+                        processing_status,
+                        processing_error,
+                        vector_status
+                    )
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'processing', NULL, 'indexing')
+                    """,
+                    (
+                        current_user["user_id"],
                         safe_filename,
-                }
-
-
-        else:
-
-            print(
-                "⚠️ No text extracted from document"
-            )
-
-
-            return {
-                "message":
-                    "File uploaded, but no readable text was found.",
-
-                "filename":
-                    safe_filename,
-            }
-
+                        original_filename,
+                        file_size_bytes,
+                        file_extension,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE documents
+                    SET original_filename = ?,
+                        file_size = ?,
+                        file_type = ?,
+                        created_at = CURRENT_TIMESTAMP,
+                        processing_status = 'processing',
+                        processing_error = NULL,
+                        vector_status = 'indexing'
+                    WHERE id = ?
+                    """,
+                    (
+                        original_filename,
+                        file_size_bytes,
+                        file_extension,
+                        existing[0],
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
         # ----------------------------------------------------
-        # Success
+        # Dispatch Asynchronous Background Indexing
         # ----------------------------------------------------
+        background_tasks.add_task(
+            process_document_indexing_background,
+            safe_filename,
+            current_user["user_id"],
+        )
+
+        upload_response_time = time.time() - t_upload_start
+        print(f"🚀 [UPLOAD FAST-PATH RESPONSE] File: {safe_filename} ({file_size_bytes/(1024*1024):.2f} MB) in {upload_response_time*1000:.2f} ms")
 
         return {
-
-            "message":
-                "File uploaded successfully",
-
-            "filename":
-                safe_filename,
-
-            "text":
-                extracted_text[:1000],
+            "message": "File uploaded successfully. Document indexing is in progress.",
+            "filename": safe_filename,
+            "status": "processing",
+            "processing_status": "processing",
+            "size": file_size_bytes,
         }
 
-
+    except HTTPException:
+        raise
     except Exception as e:
-
-
-        if isinstance(e, HTTPException):
-
-
-            raise
-        print(
-            "❌ Upload Error:",
-            str(e),
+        import traceback
+        print("❌ Upload Error (Internal):", str(e))
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail="Document upload failed. Please try again.",
         )
 
 
-        return {
-
-            "message":
-                "File upload failed.",
-        }
-
-
 # ============================================================
-# CHAT REQUEST MODEL
+# CONVERSATION MODELS & CHAT REQUEST
 # ============================================================
+
+class CreateConversationRequest(BaseModel):
+    title: str | None = "New Conversation"
+
+
+class UpdateConversationRequest(BaseModel):
+    title: str
+
 
 class ChatRequest(BaseModel):
-
     question: str
-
-    # New format
     filenames: list[str] | None = None
-
-    # Old format - backward compatibility
     filename: str | None = None
+    conversation_id: int | None = None
 
 
 # ============================================================
@@ -938,7 +1163,7 @@ def retrieve_multi_document_context(
     print("=" * 70)
 
     print(
-        "🔎 MULTI-DOCUMENT RETRIEVAL"
+        "ðŸ”Ž MULTI-DOCUMENT RETRIEVAL"
     )
 
     print(
@@ -966,7 +1191,7 @@ def retrieve_multi_document_context(
         try:
 
             print(
-                f"🔍 Retrieving document {index}/{len(filenames)}:"
+                f"ðŸ” Retrieving document {index}/{len(filenames)}:"
             )
 
             print(
@@ -1001,7 +1226,7 @@ def retrieve_multi_document_context(
 
 
                 print(
-                    f"✅ Context retrieved from: {filename}"
+                    f"âœ… Context retrieved from: {filename}"
                 )
 
                 print(
@@ -1013,7 +1238,7 @@ def retrieve_multi_document_context(
             else:
 
                 print(
-                    f"⚠️ No relevant context found in: {filename}"
+                    f"âš ï¸ No relevant context found in: {filename}"
                 )
 
 
@@ -1025,7 +1250,7 @@ def retrieve_multi_document_context(
 
                 raise
             print(
-                f"❌ Retrieval failed for {filename}:",
+                f"âŒ Retrieval failed for {filename}:",
                 str(e),
             )
 
@@ -1042,12 +1267,12 @@ def retrieve_multi_document_context(
     print("=" * 70)
 
     print(
-        "📚 COMBINED CONTEXT LENGTH:",
+        "ðŸ“š COMBINED CONTEXT LENGTH:",
         len(combined_context),
     )
 
     print(
-        "📄 DOCUMENT COUNT:",
+        "ðŸ“„ DOCUMENT COUNT:",
         len(filenames),
     )
 
@@ -1073,7 +1298,7 @@ def document_summary(
             return {
                 "question": request.question,
                 "mode": "cloud",
-                "answer": "📄 Please select a document."
+                "answer": "ðŸ“„ Please select a document."
             }
 
         filenames = validate_user_documents(
@@ -1083,7 +1308,7 @@ def document_summary(
 
         filename = filenames[0]
         print("=" * 70)
-        print("📄 DOCUMENT SUMMARY REQUEST")
+        print("ðŸ“„ DOCUMENT SUMMARY REQUEST")
         print("Filename:", filename)
         print("=" * 70)
 
@@ -1093,10 +1318,10 @@ def document_summary(
             return {
                 "filename": filename,
                 "mode": "cloud",
-                "answer": "📄 Document not found."
+                "answer": "ðŸ“„ Document not found."
             }
 
-        print("📖 Extracting complete document text...")
+        print("ðŸ“– Extracting complete document text...")
         extracted_text = extract_text(file_path)
 
         if not extracted_text or not extracted_text.strip():
@@ -1106,29 +1331,152 @@ def document_summary(
                 "answer": "I couldn't find readable content in the uploaded document."
             }
 
-        print("📝 Extracted text length:", len(extracted_text))
+        print("ðŸ“ Extracted text length:", len(extracted_text))
 
         answer = explain_document(extracted_text, filename)
+
+        # Persist conversation & messages in SQLite
+        conv_id = request.conversation_id
+        user_prompt = request.question.strip() if request.question else f"Explain document: {filename}"
+
+        conv_id, conv_title = resolve_or_create_conversation(
+            current_user["user_id"],
+            conv_id,
+            user_prompt,
+            [filename],
+        )
+        save_message(conv_id, "assistant", answer)
+        touch_conversation(conv_id, current_user["user_id"])
 
         print("=" * 70)
         print("🤖 DOCUMENT EXPLANATION")
         print(answer)
+        print(f"Conversation ID: {conv_id} | Title: {conv_title}")
         print("=" * 70)
 
         return {
-            "question": request.question,
+            "question": user_prompt,
             "filename": filename,
+            "filenames": [filename],
             "mode": "cloud",
             "answer": answer,
+            "conversation_id": conv_id,
+            "conversation_title": conv_title,
         }
 
     except Exception as e:
-
         if isinstance(e, HTTPException):
-
             raise
         print("❌ Document Summary Error:", str(e))
         return {"error": "Document summary failed."}
+
+
+# ============================================================
+# CONVERSATIONS REST API
+# ============================================================
+
+@app.post("/conversations")
+def create_new_conversation(
+    request: CreateConversationRequest = None,
+    current_user=Depends(get_current_user),
+):
+    user_id = current_user["user_id"]
+    title = request.title if (request and request.title) else "New Conversation"
+    conv = create_conversation(user_id, title)
+    return conv
+
+
+@app.get("/conversations")
+def list_conversations(
+    current_user=Depends(get_current_user),
+):
+    user_id = current_user["user_id"]
+    conversations = get_user_conversations(user_id)
+    return conversations
+
+
+@app.get("/conversations/{conversation_id}")
+def get_single_conversation(
+    conversation_id: int,
+    current_user=Depends(get_current_user),
+):
+    user_id = current_user["user_id"]
+    conv = get_conversation(conversation_id, user_id)
+    if conv is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found.",
+        )
+    return conv
+
+
+@app.patch("/conversations/{conversation_id}")
+def rename_conversation(
+    conversation_id: int,
+    request: UpdateConversationRequest,
+    current_user=Depends(get_current_user),
+):
+    user_id = current_user["user_id"]
+    if not request.title or not request.title.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Conversation title cannot be empty.",
+        )
+    success = update_conversation_title(conversation_id, user_id, request.title.strip())
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found.",
+        )
+    return {
+        "message": "Conversation renamed successfully.",
+        "id": conversation_id,
+        "title": request.title.strip(),
+    }
+
+
+@app.delete("/conversations/{conversation_id}")
+def remove_conversation(
+    conversation_id: int,
+    current_user=Depends(get_current_user),
+):
+    user_id = current_user["user_id"]
+    success = delete_conversation(conversation_id, user_id)
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found.",
+        )
+    return {
+        "message": "Conversation deleted successfully.",
+        "id": conversation_id,
+    }
+
+
+def resolve_or_create_conversation(user_id: int, conv_id: int | None, question: str, filenames: list[str]) -> tuple[int, str]:
+    if conv_id:
+        conv = get_conversation(conv_id, user_id)
+        if conv is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Conversation not found.",
+            )
+        conv_title = conv.get("title", "Conversation")
+    else:
+        conv_title = generate_conversation_title(question)
+        conv = create_conversation(user_id, conv_title)
+        conv_id = conv["id"]
+
+    # Save user message
+    save_message(conv_id, "user", question)
+
+    # Persist document selection for this conversation
+    if filenames:
+        set_conversation_documents(conv_id, user_id, filenames)
+    else:
+        set_conversation_documents(conv_id, user_id, [])
+
+    return conv_id, conv_title
 
 
 # ============================================================
@@ -1140,147 +1488,139 @@ def chat(
     request: ChatRequest,
     current_user=Depends(get_current_user),
 ):
-
     try:
+        user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", "unknown")
+        user_email = current_user.get("email") if isinstance(current_user, dict) else getattr(current_user, "email", "unknown")
+        filenames = get_selected_filenames(request)
 
-        filenames = (
-            get_selected_filenames(
-                request
+        # Stage [1] REQUEST PARSED
+        print("=" * 70)
+        print(f"🔹 [STAGE 1] REQUEST PARSED: user_id={user_id}, question='{request.question[:60]}...', doc_count={len(filenames)}, filenames={filenames}")
+
+        # Stage [2] AUTHENTICATION PASSED
+        print(f"🔹 [STAGE 2] AUTHENTICATION PASSED: user_id={user_id}, email={user_email}")
+
+        # Validate documents if specified
+        if filenames:
+            validated_filenames = validate_user_documents(
+                filenames,
+                current_user["user_id"],
             )
+        else:
+            validated_filenames = []
+
+        # Resolve or create persistent conversation & save user message
+        conv_id, conv_title = resolve_or_create_conversation(
+            current_user["user_id"],
+            request.conversation_id,
+            request.question,
+            validated_filenames,
         )
 
-
-        # ----------------------------------------------------
-        # Validate documents
-        # ----------------------------------------------------
-
-        if not filenames:
-
+        # General AI (No document selected)
+        if not validated_filenames:
+            print("🌐 Executing General AI Chat (No documents attached)...")
+            answer = ask_gemini_general(request.question)
+            save_message(conv_id, "assistant", answer)
+            touch_conversation(conv_id, current_user["user_id"])
+            print(f"✅ [STAGE 10] CHAT SUCCESS: Mode=General AI, Answer Length={len(answer)} chars, Conv ID={conv_id}")
+            print("=" * 70)
             return {
-
-                "question":
-                    request.question,
-
-                "mode":
-                    "cloud",
-
-                "answer":
-                    "📄 Please select at least one document.",
+                "question": request.question,
+                "filenames": [],
+                "mode": "cloud",
+                "answer": answer,
+                "conversation_id": conv_id,
+                "conversation_title": conv_title,
             }
 
+        # Stage [3] DOCUMENT LOOKUP START
+        print(f"🔹 [STAGE 3] DOCUMENT LOOKUP START: checking sqlite ownership for user_id={user_id}, docs={validated_filenames}")
 
-        filenames = validate_user_documents(
-            filenames,
-            current_user["user_id"],
-        )
+        # Stage [4] DOCUMENT LOOKUP RESULT
+        print(f"🔹 [STAGE 4] DOCUMENT LOOKUP RESULT: verified={validated_filenames}, count={len(validated_filenames)}")
 
+        # Stage [5] ADVANCED HYBRID RETRIEVAL START
+        print(f"🔹 [STAGE 5] ADVANCED HYBRID RETRIEVAL START: querying Hybrid RAG (BM25 + Chroma) for question='{request.question[:60]}...' against {validated_filenames}")
 
-        print("=" * 70)
-
-        print(
-            "☁️ CLOUD CHAT REQUEST"
-        )
-
-        print(
-            "Question:",
+        # Retrieve hybrid context with reranking, window expansion & prompt injection shielding
+        retrieval_res = NexusAdvancedRAG.retrieve_hybrid_context(
             request.question,
+            validated_filenames,
+            user_id=current_user["user_id"],
         )
+        context = retrieval_res["formatted_context"]
+        evidence_quality = retrieval_res["evidence_quality"]
 
-        print(
-            "Documents:",
-            filenames,
-        )
-
-        print("=" * 70)
-
-
-        # ----------------------------------------------------
-        # Retrieve context
-        # ----------------------------------------------------
-
-        context = (
-            retrieve_multi_document_context(
-                request.question,
-                filenames,
-            )
-        )
-
+        # Stage [6] ADVANCED RETRIEVAL RESULT
+        print(f"🔹 [STAGE 6] ADVANCED RETRIEVAL RESULT: retrieved context length={len(context)} chars, evidence_quality={evidence_quality}")
 
         if not context.strip():
-
+            print("⚠️ No relevant context found across documents.")
+            fallback_ans = "I couldn't find relevant information in the selected document(s)."
+            save_message(conv_id, "assistant", fallback_ans)
+            touch_conversation(conv_id, current_user["user_id"])
             return {
-
-                "question":
-                    request.question,
-
-                "filenames":
-                    filenames,
-
-                "mode":
-                    "cloud",
-
-                "answer":
-                    "I couldn't find relevant information in the selected document(s).",
+                "question": request.question,
+                "filenames": validated_filenames,
+                "mode": "cloud",
+                "answer": fallback_ans,
+                "evidence_quality": "Low",
+                "conversation_id": conv_id,
+                "conversation_title": conv_title,
             }
 
+        # Stage [7] GEMINI CALL START
+        active_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+        print(f"🔹 [STAGE 7] GEMINI CALL START: model={active_model}, context_chars={len(context)}, question='{request.question[:60]}...'")
 
-        # ----------------------------------------------------
-        # Generate Gemini answer
-        # ----------------------------------------------------
-
-        answer = ask_gemini(
+        # Generate Gemini answer via ModelProvider with Output Privacy Guard
+        start_time = time.time()
+        gemini_provider = GeminiModelProvider()
+        answer = gemini_provider.generate_response(
             context,
             request.question,
+            user_id=str(user_id),
         )
+        elapsed_time = time.time() - start_time
 
+        # Stage [8] GEMINI RESPONSE RECEIVED
+        print(f"🔹 [STAGE 8] GEMINI RESPONSE RECEIVED: response_status=200, elapsed={elapsed_time:.2f}s, answer_chars={len(answer) if answer else 0}")
 
+        # Stage [9] RESPONSE PARSED
+        print(f"🔹 [STAGE 9] RESPONSE PARSED: parsed length={len(answer) if answer else 0} chars, sample='{str(answer)[:80]}...'")
+
+        # Stage [10] CHAT SUCCESS
+        print(f"✅ [STAGE 10] CHAT SUCCESS: HTTP 200 returned for user_id={user_id}, docs={validated_filenames}, Conv ID={conv_id}")
         print("=" * 70)
 
-        print(
-            "🤖 GEMINI ANSWER"
-        )
-
-        print(
-            answer
-        )
-
-        print("=" * 70)
-
+        # Save assistant answer to conversation
+        save_message(conv_id, "assistant", answer)
+        touch_conversation(conv_id, current_user["user_id"])
 
         return {
-
-            "question":
-                request.question,
-
-            "filenames":
-                filenames,
-
-            "mode":
-                "cloud",
-
-            "answer":
-                answer,
+            "question": request.question,
+            "filenames": validated_filenames,
+            "sources": validated_filenames if validated_filenames else [],
+            "mode": "cloud",
+            "answer": answer,
+            "evidence_quality": evidence_quality,
+            "conversation_id": conv_id,
+            "conversation_title": conv_title,
         }
-
 
     except Exception as e:
-
-
         if isinstance(e, HTTPException):
-
-
             raise
-        print(
-            "❌ Cloud Chat Error:",
-            str(e),
+        print("=" * 70)
+        print("[ERROR] ========== CHAT EXCEPTION ==========")
+        print("Exception Type   :", type(e).__name__)
+        print("Exception Message:", str(e))
+        print("=" * 70)
+        raise HTTPException(
+            status_code=503,
+            detail="Cloud AI service is temporarily unavailable. Please try again.",
         )
-
-
-        return {
-
-            "error":
-                "Cloud chat failed.",
-        }
 
 
 # ============================================================
@@ -1292,147 +1632,87 @@ def local_chat_normal(
     request: ChatRequest,
     current_user=Depends(get_current_user),
 ):
-
     try:
+        filenames = get_selected_filenames(request)
 
-        filenames = (
-            get_selected_filenames(
-                request
+        if filenames:
+            validated_filenames = validate_user_documents(
+                filenames,
+                current_user["user_id"],
             )
+        else:
+            validated_filenames = []
+
+        conv_id, conv_title = resolve_or_create_conversation(
+            current_user["user_id"],
+            request.conversation_id,
+            request.question,
+            validated_filenames,
         )
 
-
-        # ----------------------------------------------------
-        # Validate
-        # ----------------------------------------------------
-
-        if not filenames:
-
+        if not validated_filenames:
+            answer = ask_local("", request.question)
+            save_message(conv_id, "assistant", answer)
+            touch_conversation(conv_id, current_user["user_id"])
             return {
-
-                "question":
-                    request.question,
-
-                "mode":
-                    "local",
-
-                "answer":
-                    "📄 Please select at least one document.",
+                "question": request.question,
+                "filenames": [],
+                "mode": "local",
+                "answer": answer,
+                "conversation_id": conv_id,
+                "conversation_title": conv_title,
             }
 
-
-        filenames = validate_user_documents(
-            filenames,
-            current_user["user_id"],
-        )
-
-
-        print("=" * 70)
-
-        print(
-            "🖥️ LOCAL QWEN CHAT REQUEST"
-        )
-
-        print(
-            "Question:",
+        retrieval_res = NexusAdvancedRAG.retrieve_hybrid_context(
             request.question,
+            validated_filenames,
+            user_id=current_user["user_id"],
         )
-
-        print(
-            "Documents:",
-            filenames,
-        )
-
-        print("=" * 70)
-
-
-        # ----------------------------------------------------
-        # Retrieve context
-        # ----------------------------------------------------
-
-        context = (
-            retrieve_multi_document_context(
-                request.question,
-                filenames,
-            )
-        )
-
+        context = retrieval_res["formatted_context"]
+        evidence_quality = retrieval_res["evidence_quality"]
 
         if not context.strip():
-
+            fallback_ans = "I couldn't find relevant information in the selected document(s)."
+            save_message(conv_id, "assistant", fallback_ans)
+            touch_conversation(conv_id, current_user["user_id"])
             return {
-
-                "question":
-                    request.question,
-
-                "filenames":
-                    filenames,
-
-                "mode":
-                    "local",
-
-                "answer":
-                    "I couldn't find relevant information in the selected document(s).",
+                "question": request.question,
+                "filenames": validated_filenames,
+                "mode": "local",
+                "answer": fallback_ans,
+                "evidence_quality": "Low",
+                "conversation_id": conv_id,
+                "conversation_title": conv_title,
             }
 
-
-        # ----------------------------------------------------
-        # Generate Qwen answer
-        # ----------------------------------------------------
-
-        answer = ask_local(
+        local_provider = LocalQwenModelProvider()
+        answer = local_provider.generate_response(
             context,
             request.question,
+            user_id=str(current_user["user_id"]),
         )
 
-
-        print("=" * 70)
-
-        print(
-            "🤖 LOCAL QWEN ANSWER"
-        )
-
-        print(
-            answer
-        )
-
-        print("=" * 70)
-
+        save_message(conv_id, "assistant", answer)
+        touch_conversation(conv_id, current_user["user_id"])
 
         return {
-
-            "question":
-                request.question,
-
-            "filenames":
-                filenames,
-
-            "mode":
-                "local",
-
-            "answer":
-                answer,
+            "question": request.question,
+            "filenames": validated_filenames,
+            "sources": validated_filenames if validated_filenames else [],
+            "mode": "local",
+            "answer": answer,
+            "conversation_id": conv_id,
+            "conversation_title": conv_title,
         }
-
 
     except Exception as e:
-
-
         if isinstance(e, HTTPException):
-
-
             raise
-        print(
-            "❌ Local Chat Error:",
-            str(e),
+        print("❌ Local Chat Error:", str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="Local chat failed.",
         )
-
-
-        return {
-
-            "error":
-                "Local chat failed.",
-        }
 
 
 # ============================================================
@@ -1444,110 +1724,75 @@ def local_chat(
     request: ChatRequest,
     current_user=Depends(get_current_user),
 ):
-
     try:
+        filenames = get_selected_filenames(request)
 
-        filenames = (
-            get_selected_filenames(
-                request
-            )
-        )
-
-
-        # ----------------------------------------------------
-        # Validate
-        # ----------------------------------------------------
-
-        if not filenames:
-
-            return StreamingResponse(
-
-                iter([
-                    "📄 Please select at least one document."
-                ]),
-
-                media_type=
-                    "text/plain; charset=utf-8",
-            )
-
-
-        filenames = validate_user_documents(
-            filenames,
-            current_user["user_id"],
-        )
-
-
-        print("=" * 70)
-
-        print(
-            "🖥️ LOCAL STREAMING QWEN REQUEST"
-        )
-
-        print(
-            "Question:",
-            request.question,
-        )
-
-        print(
-            "Documents:",
-            filenames,
-        )
-
-        print("=" * 70)
-
-
-        # ----------------------------------------------------
-        # Retrieve context
-        # ----------------------------------------------------
-
-        context = (
-            retrieve_multi_document_context(
-                request.question,
+        if filenames:
+            validated_filenames = validate_user_documents(
                 filenames,
+                current_user["user_id"],
             )
+        else:
+            validated_filenames = []
+
+        conv_id, conv_title = resolve_or_create_conversation(
+            current_user["user_id"],
+            request.conversation_id,
+            request.question,
+            validated_filenames,
         )
 
-
-        if not context.strip():
-
-            return StreamingResponse(
-
-                iter([
-                    "I couldn't find relevant information in the selected document(s)."
-                ]),
-
-                media_type=
-                    "text/plain; charset=utf-8",
+        if not validated_filenames:
+            stream_gen = stream_local("", request.question)
+        else:
+            retrieval_res = NexusAdvancedRAG.retrieve_hybrid_context(
+                request.question,
+                validated_filenames,
+                user_id=current_user["user_id"],
             )
+            context = retrieval_res["formatted_context"]
+            evidence_quality = retrieval_res["evidence_quality"]
+            if not context.strip():
+                fallback_ans = "I couldn't find relevant information in the selected document(s)."
+                save_message(conv_id, "assistant", fallback_ans)
+                touch_conversation(conv_id, current_user["user_id"])
+                return StreamingResponse(
+                    iter([fallback_ans]),
+                    media_type="text/plain; charset=utf-8",
+                    headers={
+                        "X-Conversation-Id": str(conv_id),
+                        "X-Conversation-Title": conv_title,
+                        "X-Evidence-Quality": "Low",
+                    },
+                )
+            stream_gen = stream_local(context, request.question)
 
-
-        # ----------------------------------------------------
-        # Stream Qwen response
-        # ----------------------------------------------------
+        def stream_with_persistence():
+            full_chunks = []
+            try:
+                for chunk in stream_gen:
+                    full_chunks.append(chunk)
+                    yield chunk
+            finally:
+                complete_text = "".join(full_chunks)
+                if complete_text.strip():
+                    try:
+                        save_message(conv_id, "assistant", complete_text)
+                        touch_conversation(conv_id, current_user["user_id"])
+                    except Exception as persist_err:
+                        print("Failed to persist streaming message:", persist_err)
 
         return StreamingResponse(
-
-            stream_local(
-                context,
-                request.question,
-            ),
-
-            media_type=
-                "text/plain; charset=utf-8",
-
+            stream_with_persistence(),
+            media_type="text/plain; charset=utf-8",
             headers={
-
-                "Cache-Control":
-                    "no-cache",
-
-                "X-Accel-Buffering":
-                    "no",
-
-                "Connection":
-                    "keep-alive",
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+                "X-Conversation-Id": str(conv_id),
+                "X-Conversation-Title": conv_title,
             },
         )
-
 
     except Exception as e:
 
@@ -1557,7 +1802,7 @@ def local_chat(
 
             raise
         print(
-            "❌ Local Streaming Chat Error:",
+            "âŒ Local Streaming Chat Error:",
             str(e),
         )
 
@@ -1565,7 +1810,7 @@ def local_chat(
         return StreamingResponse(
 
             iter([
-                "❌ Local AI request failed."
+                "âŒ Local AI request failed."
             ]),
 
             media_type=
@@ -1587,7 +1832,7 @@ def local_warmup(
         print("=" * 70)
 
         print(
-            "🔥 LOCAL AI WARM-UP REQUEST"
+            "ðŸ”¥ LOCAL AI WARM-UP REQUEST"
         )
 
         print("=" * 70)
@@ -1607,7 +1852,7 @@ def local_warmup(
 
             raise
         print(
-            "❌ Local Warm-up Error:",
+            "âŒ Local Warm-up Error:",
             str(e),
         )
 
@@ -1630,7 +1875,7 @@ def document_belongs_to_user(
     filename: str,
     user_id: int,
 ) -> bool:
-    conn = sqlite3.connect("auth.db")
+    conn = sqlite3.connect(os.path.join(BASE_DIR, "auth.db"))
     try:
         row = conn.execute(
             """
@@ -1653,7 +1898,7 @@ def get_owned_filenames(
     if not filenames:
         return []
 
-    conn = sqlite3.connect("auth.db")
+    conn = sqlite3.connect(os.path.join(BASE_DIR, "auth.db"))
     try:
         placeholders = ",".join("?" for _ in filenames)
         rows = conn.execute(
@@ -1699,13 +1944,14 @@ def get_documents(
     current_user=Depends(get_current_user),
 ):
     try:
-        conn = sqlite3.connect("auth.db")
+        conn = sqlite3.connect(os.path.join(BASE_DIR, "auth.db"))
         rows = conn.execute(
             """
-            SELECT filename
+            SELECT filename, file_size, processing_status, processing_error, vector_status, created_at, privacy_risk, privacy_details,
+                   COALESCE(extraction_method, 'native'), COALESCE(ocr_used, 0), COALESCE(ocr_page_count, 0), COALESCE(page_count, 1)
             FROM documents
             WHERE user_id = ?
-            ORDER BY filename COLLATE NOCASE
+            ORDER BY id DESC
             """,
             (current_user["user_id"],),
         ).fetchall()
@@ -1713,16 +1959,30 @@ def get_documents(
 
         files = []
 
-        for (filename,) in rows:
-            file_path = get_safe_document_path(
-                filename
-            )
+        for filename, file_size, proc_status, proc_error, vec_status, created_at, priv_risk, priv_details, ext_method, ocr_u, ocr_p, p_count in rows:
+            file_path = get_safe_document_path(filename)
+            actual_size = file_size if (file_size and file_size > 0) else (os.path.getsize(file_path) if os.path.isfile(file_path) else 0)
 
-            if os.path.isfile(file_path):
-                files.append({
-                    "filename": filename,
-                    "size": os.path.getsize(file_path),
-                })
+            status_val = proc_status or "ready"
+            if status_val == "completed":
+                status_val = "ready"
+
+            files.append({
+                "filename": filename,
+                "size": actual_size,
+                "status": status_val,
+                "processing_status": status_val,
+                "error": proc_error,
+                "processing_error": proc_error,
+                "vector_status": vec_status or "indexed",
+                "created_at": created_at,
+                "privacy_risk": priv_risk or "LOW",
+                "privacy_details": priv_details,
+                "extraction_method": ext_method,
+                "ocr_used": bool(ocr_u),
+                "ocr_page_count": ocr_p,
+                "page_count": p_count,
+            })
 
         return {
             "count": len(files),
@@ -1730,9 +1990,7 @@ def get_documents(
         }
 
     except Exception as e:
-
         if isinstance(e, HTTPException):
-
             raise
         print("❌ Documents Error:", str(e))
         return {
@@ -1788,7 +2046,10 @@ def delete_document(
             file_path
         )
 
-        conn = sqlite3.connect("auth.db")
+        # Delete from Chroma vector store and invalidate BM25 index
+        delete_document_from_vector_store(filename)
+
+        conn = sqlite3.connect(os.path.join(BASE_DIR, "auth.db"))
         conn.execute(
             """
             DELETE FROM documents
@@ -1804,7 +2065,7 @@ def delete_document(
 
 
         print(
-            "🗑️ Document deleted:",
+            "ðŸ—‘ï¸ Document deleted:",
             filename,
         )
 
@@ -1954,5 +2215,7 @@ def get_document_file(
                 "inline",
         },
     )
+
+
 
 

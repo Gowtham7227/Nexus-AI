@@ -1,1037 +1,2379 @@
-/*
-  NexusAI ChatWindow
-  UI changes:
-  - Removed the large robot "Ask NexusAI anything" empty state.
-  - Chat input is centered before the first message.
-  - Chat input moves to the bottom after ChatInput dispatches
-    the "nexusai-chat-started" event.
-  - Existing document selection/explanation/backend logic is preserved.
-*/
-import React, {
-  useEffect,
-  useState,
-} from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import api, { API_BASE_URL, getAuthHeaders } from "../api/client";
+import {
+  FaPaperPlane,
+  FaMicrophone,
+  FaPlus,
+  FaTrash,
+  FaTimes,
+  FaBookOpen,
+  FaFileAlt,
+  FaCloud,
+  FaDesktop,
+  FaCopy,
+  FaCheck,
+  FaRedo,
+  FaStop,
+  FaArrowDown,
+  FaExclamationTriangle,
+  FaEdit,
+  FaBars,
+} from "react-icons/fa";
+import MarkdownRenderer from "./MarkdownRenderer";
 
-import api from "../api/client";
-import { FaRobot } from "react-icons/fa";
-import ChatInput from "./ChatInput";
+const MODE_STORAGE_KEY = "nexusai_processing_mode";
+const MAX_UPLOAD_SIZE_MB = 100;
+const MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024;
 
 function ChatWindow() {
-  // ============================================================
-  // SELECTED DOCUMENTS
-  // ============================================================
+  // ----------------------------------------------------
+  // State: Conversations & Persistence
+  // ----------------------------------------------------
+  const [conversations, setConversations] = useState([]);
+  const [activeConversationId, setActiveConversationId] = useState(null);
+  const [activeConversationTitle, setActiveConversationTitle] = useState("");
+  const [loadingConversations, setLoadingConversations] = useState(false);
+  const [conversationLoadError, setConversationLoadError] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  const [
-    selectedDocuments,
-    setSelectedDocuments,
-  ] = useState([]);
+  // Rename modal / inline state
+  const [editingConvId, setEditingConvId] = useState(null);
+  const [editingTitleText, setEditingTitleText] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
 
-  const [
-    loaded,
-    setLoaded,
-  ] = useState(false);
+  // Delete modal state
+  const [deletingConv, setDeletingConv] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  // ============================================================
-  // CHAT START STATE
-  // ============================================================
-
-  const [
-    chatStarted,
-    setChatStarted,
-  ] = useState(false);
-
-  // ============================================================
-  // DOCUMENT EXPLANATION
-  // ============================================================
-
-  const [
-    explanation,
-    setExplanation,
-  ] = useState("");
-
-  const [
-    explaining,
-    setExplaining,
-  ] = useState(false);
-
-  const [
-    explanationError,
-    setExplanationError,
-  ] = useState("");
-
-  // ============================================================
-  // LOAD SELECTED DOCUMENTS
-  // ============================================================
-
-  useEffect(() => {
-    const loadSelectedDocuments = () => {
-      try {
-        const saved =
-          localStorage.getItem(
-            "nexusai_selected_documents"
-          );
-
-        if (saved) {
-          const parsed =
-            JSON.parse(saved);
-
-          if (
-            Array.isArray(parsed)
-          ) {
-            setSelectedDocuments(
-              parsed
-            );
-
-            setLoaded(true);
-
-            return;
-          }
-        }
-
-        const oldDocument =
-          localStorage.getItem(
-            "nexusai_selected_document"
-          );
-
-        if (oldDocument) {
-          setSelectedDocuments([
-            oldDocument,
-          ]);
-        } else {
-          setSelectedDocuments([]);
-        }
-      } catch (error) {
-        console.error(
-          "Error loading selected documents:",
-          error
-        );
-
-        setSelectedDocuments([]);
+  // ----------------------------------------------------
+  // State: Documents & Context
+  // ----------------------------------------------------
+  const [selectedDocuments, setSelectedDocuments] = useState(() => {
+    try {
+      const saved = localStorage.getItem("nexusai_selected_documents");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
       }
+      const single = localStorage.getItem("nexusai_selected_document");
+      return single ? [single] : [];
+    } catch {
+      return [];
+    }
+  });
 
-      setLoaded(true);
-    };
+  const [availableDocuments, setAvailableDocuments] = useState([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [docLoadError, setDocLoadError] = useState("");
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docSearchQuery, setDocSearchQuery] = useState("");
+  const [modalSelectedDocs, setModalSelectedDocs] = useState([]);
 
-    loadSelectedDocuments();
+  // ----------------------------------------------------
+  // State: AI Processing Mode
+  // ----------------------------------------------------
+  const [processingMode, setProcessingMode] = useState(() => {
+    const saved = localStorage.getItem(MODE_STORAGE_KEY);
+    return saved === "local" ? "local" : "cloud";
+  });
 
-    const handleDocumentChange = () => {
-      loadSelectedDocuments();
+  // ----------------------------------------------------
+  // State: Chat Messages & Input
+  // ----------------------------------------------------
+  const [messages, setMessages] = useState([]);
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadingStatusText, setLoadingStatusText] = useState("Thinking...");
+  const [uploading, setUploading] = useState(false);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState(null);
+  const [copyToast, setCopyToast] = useState({ show: false, message: "", isError: false });
+  const copyToastTimerRef = useRef(null);
 
-      // A document selection change starts
-      // a fresh explanation state.
-      setExplanation("");
-      setExplanationError("");
-    };
 
-    window.addEventListener(
-      "nexusai-selected-documents-change",
-      handleDocumentChange
-    );
 
-    const handleChatStarted = () => {
-      setChatStarted(true);
-    };
+  // ----------------------------------------------------
+  // State: Scrolling & Autoscroll Management
+  // ----------------------------------------------------
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const userScrolledUpRef = useRef(false);
 
-    window.addEventListener(
-      "nexusai-chat-started",
-      handleChatStarted
-    );
+  // ----------------------------------------------------
+  // State: Voice Input & DOM Refs
+  // ----------------------------------------------------
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const inputFieldRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
-    return () => {
-      window.removeEventListener(
-        "nexusai-selected-documents-change",
-        handleDocumentChange
-      );
+  // ----------------------------------------------------
+  // Auto-scroll logic (Precision scroll without layout fight)
+  // ----------------------------------------------------
+  const scrollToBottom = useCallback((behavior = "smooth") => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
 
-      window.removeEventListener(
-        "nexusai-chat-started",
-        handleChatStarted
-      );
-    };
+    if (behavior === "auto" || behavior === "instant") {
+      container.scrollTop = container.scrollHeight;
+    } else {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      });
+    }
   }, []);
 
-  // ============================================================
-  // DOCUMENT CHANGE CALLBACK
-  // ============================================================
+  const handleContainerScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
 
-  const handleDocumentsChange = (
-    documents
-  ) => {
-    if (
-      !Array.isArray(documents)
-    ) {
-      return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+
+    const scrolledUp = distanceFromBottom > 80;
+    userScrolledUpRef.current = scrolledUp;
+    setShowScrollBottom(scrolledUp);
+  }, []);
+
+  useEffect(() => {
+    if (!userScrolledUpRef.current) {
+      scrollToBottom("auto");
     }
+  }, [messages, loading, scrollToBottom]);
 
-    setSelectedDocuments(
-      documents
-    );
-
-    localStorage.setItem(
-      "nexusai_selected_documents",
-      JSON.stringify(documents)
-    );
-
-    if (
-      documents.length === 1
-    ) {
-      localStorage.setItem(
-        "nexusai_selected_document",
-        documents[0]
-      );
-    } else {
-      localStorage.removeItem(
-        "nexusai_selected_document"
-      );
+  // ----------------------------------------------------
+  // Load User Conversations
+  // ----------------------------------------------------
+  const fetchConversations = useCallback(async () => {
+    setLoadingConversations(true);
+    setConversationLoadError("");
+    try {
+      const response = await api.get("/conversations");
+      setConversations(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      console.warn("Could not load conversations:", err);
+      setConversationLoadError("Unable to load conversations.");
+      setConversations([]);
+    } finally {
+      setLoadingConversations(false);
     }
+  }, []);
 
-    // Clear old explanation when the
-    // selected document set changes.
-    setExplanation("");
-    setExplanationError("");
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
+
+  // ----------------------------------------------------
+  // Load Single Conversation by ID
+  // ----------------------------------------------------
+  const selectConversation = async (convId) => {
+    if (loading) return;
+    try {
+      const response = await api.get(`/conversations/${convId}`);
+      const conv = response.data;
+      if (!conv) return;
+
+      setActiveConversationId(conv.id);
+      setActiveConversationTitle(conv.title || "Conversation");
+
+      // Format messages
+      const formatted = (conv.messages || []).map((m) => ({
+        id: m.id,
+        type: m.role === "user" ? "user" : "ai",
+        text: m.content,
+        timestamp: m.created_at,
+        sources: conv.documents || [],
+        queryUsed: m.role === "user" ? m.content : "",
+      }));
+      setMessages(formatted);
+
+      // Restore selected documents if any
+      const docs = conv.documents || [];
+      setSelectedDocuments(docs);
+      localStorage.setItem("nexusai_selected_documents", JSON.stringify(docs));
+
+      userScrolledUpRef.current = false;
+      setShowScrollBottom(false);
+
+      setTimeout(() => {
+        scrollToBottom("instant");
+      }, 30);
+    } catch (err) {
+      console.error("Failed to restore conversation:", err);
+      alert("Unable to open conversation. It may have been deleted.");
+      fetchConversations();
+    }
   };
 
-  // ============================================================
-  // NEW CHAT
-  // ============================================================
-
+  // ----------------------------------------------------
+  // Create / Start New Chat
+  // ----------------------------------------------------
   const handleNewChat = () => {
-    setSelectedDocuments([]);
-    setChatStarted(false);
-
-    setExplanation("");
-    setExplanationError("");
-    setExplaining(false);
-
-    localStorage.removeItem(
-      "nexusai_selected_documents"
-    );
-
-    localStorage.removeItem(
-      "nexusai_selected_document"
-    );
-
-    localStorage.removeItem(
-      "nexusai_new_chat"
-    );
-
-    window.dispatchEvent(
-      new Event(
-        "nexusai-new-chat"
-      )
-    );
-
-    // Stay on /chat.
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setLoading(false);
+    setActiveConversationId(null);
+    setActiveConversationTitle("");
+    setMessages([]);
+    setQuestion("");
+    userScrolledUpRef.current = false;
+    setShowScrollBottom(false);
   };
 
-  // ============================================================
-  // EXPLAIN ENTIRE DOCUMENT
-  // ============================================================
+  // ----------------------------------------------------
+  // Rename Conversation Handler
+  // ----------------------------------------------------
+  const handleStartRename = (e, conv) => {
+    e.stopPropagation();
+    setEditingConvId(conv.id);
+    setEditingTitleText(conv.title);
+  };
 
-  const handleExplainDocument = async () => {
-    if (
-      selectedDocuments.length !== 1
-    ) {
-      setExplanationError(
-        "Please select one document to explain."
+  const handleSaveRename = async (e) => {
+    if (e) e.preventDefault();
+    if (!editingConvId || !editingTitleText.trim() || isRenaming) return;
+
+    setIsRenaming(true);
+    try {
+      await api.patch(`/conversations/${editingConvId}`, {
+        title: editingTitleText.trim(),
+      });
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === editingConvId ? { ...c, title: editingTitleText.trim() } : c
+        )
       );
-
-      return;
+      if (activeConversationId === editingConvId) {
+        setActiveConversationTitle(editingTitleText.trim());
+      }
+      setEditingConvId(null);
+      setEditingTitleText("");
+    } catch (err) {
+      console.error("Failed to rename conversation:", err);
+      alert("Failed to rename conversation. Please try again.");
+    } finally {
+      setIsRenaming(false);
     }
+  };
 
-    const filename =
-      selectedDocuments[0];
+  // ----------------------------------------------------
+  // Delete Conversation Handler
+  // ----------------------------------------------------
+  const handleConfirmDelete = async () => {
+    if (!deletingConv || isDeleting) return;
 
-    setExplaining(true);
-    setExplanation("");
-    setExplanationError("");
+    setIsDeleting(true);
+    const targetId = deletingConv.id;
+    try {
+      await api.delete(`/conversations/${targetId}`);
+      setConversations((prev) => prev.filter((c) => c.id !== targetId));
+      if (activeConversationId === targetId) {
+        handleNewChat();
+      }
+      setDeletingConv(null);
+    } catch (err) {
+      console.error("Failed to delete conversation:", err);
+      alert("Failed to delete conversation. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // Load Workspace Documents
+  // ----------------------------------------------------
+  const fetchWorkspaceDocuments = useCallback(async () => {
+    setLoadingDocs(true);
+    setDocLoadError("");
+    try {
+      const response = await api.get("/documents");
+      const docs = response.data?.documents || [];
+      setAvailableDocuments(docs);
+    } catch (err) {
+      console.warn("Could not load documents:", err);
+      setDocLoadError("Unable to load workspace documents.");
+      setAvailableDocuments([]);
+    } finally {
+      setLoadingDocs(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchWorkspaceDocuments();
+  }, [fetchWorkspaceDocuments]);
+
+  // ----------------------------------------------------
+  // Mode Change Listener
+  // ----------------------------------------------------
+  useEffect(() => {
+    const handleModeChange = () => {
+      const saved = localStorage.getItem(MODE_STORAGE_KEY);
+      setProcessingMode(saved === "local" ? "local" : "cloud");
+    };
+    window.addEventListener("nexusai-mode-change", handleModeChange);
+    return () => window.removeEventListener("nexusai-mode-change", handleModeChange);
+  }, []);
+
+  // ----------------------------------------------------
+  // Synchronize document selection changes
+  // ----------------------------------------------------
+  const updateSelectedDocuments = (newSelection) => {
+    setSelectedDocuments(newSelection);
+    localStorage.setItem("nexusai_selected_documents", JSON.stringify(newSelection));
+    if (newSelection.length === 1) {
+      localStorage.setItem("nexusai_selected_document", newSelection[0]);
+    } else {
+      localStorage.removeItem("nexusai_selected_document");
+    }
+    window.dispatchEvent(new Event("nexusai-selected-documents-change"));
+  };
+
+  const removeSelectedDocument = (filenameToRemove) => {
+    const updated = selectedDocuments.filter((f) => f !== filenameToRemove);
+    updateSelectedDocuments(updated);
+  };
+
+  const clearAllSelectedDocuments = () => {
+    updateSelectedDocuments([]);
+  };
+
+  // ----------------------------------------------------
+  // Auto-resize textarea
+  // ----------------------------------------------------
+  const adjustTextareaHeight = () => {
+    const textarea = inputFieldRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      const newHeight = Math.min(Math.max(textarea.scrollHeight, 44), 160);
+      textarea.style.height = `${newHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [question]);
+
+  // ----------------------------------------------------
+  // Mode Switch Toggle
+  // ----------------------------------------------------
+  const handleToggleMode = () => {
+    const nextMode = processingMode === "cloud" ? "local" : "cloud";
+    setProcessingMode(nextMode);
+    localStorage.setItem(MODE_STORAGE_KEY, nextMode);
+    window.dispatchEvent(new Event("nexusai-mode-change"));
+  };
+
+  // ----------------------------------------------------
+  // Copy Answer
+  // ----------------------------------------------------
+  const handleCopyAnswer = async (textToCopy, index) => {
+    if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(textToCopy);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = textToCopy;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopiedMessageIndex(index);
+      setCopyToast({ show: true, message: "Message copied", isError: false });
+      copyToastTimerRef.current = setTimeout(() => {
+        setCopiedMessageIndex(null);
+        setCopyToast({ show: false, message: "", isError: false });
+      }, 1800);
+    } catch (err) {
+      console.error("Failed to copy answer to clipboard:", err);
+      setCopyToast({ show: true, message: "Unable to copy message", isError: true });
+      copyToastTimerRef.current = setTimeout(() => {
+        setCopyToast({ show: false, message: "", isError: false });
+      }, 2200);
+    }
+  };
+
+
+
+  // ----------------------------------------------------
+  // Stop Generating
+  // ----------------------------------------------------
+  const handleStopGenerating = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setLoading(false);
+    setLoadingStatusText("Generation stopped.");
+  };
+
+  // ----------------------------------------------------
+  // Document Full Explanation (Integrated into Conversation Flow)
+  // ----------------------------------------------------
+  const handleExplainDocument = async () => {
+    if (selectedDocuments.length === 0 || loading) return;
+
+    const targetDoc = selectedDocuments[0];
+    const promptText = "Explain the document";
+
+    // 1. Append user message to conversation
+    const userMessage = {
+      type: "user",
+      text: promptText,
+      timestamp: new Date().toISOString(),
+    };
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
+
+    userScrolledUpRef.current = false;
+    setShowScrollBottom(false);
+    setLoading(true);
+    setLoadingStatusText(`Analyzing and explaining ${targetDoc}...`);
+
+    setTimeout(() => {
+      scrollToBottom("smooth");
+    }, 20);
 
     try {
-      const response =
-        await api.post(
-          "/document-summary",
-          {
-            question:
-              "Explain entire document",
-            filenames: [
-              filename,
-            ],
-          }
-        );
+      const response = await api.post("/document-summary", {
+        question: promptText,
+        filenames: [targetDoc],
+        filename: targetDoc,
+        conversation_id: activeConversationId,
+      });
 
-      const answer =
-        response.data?.answer;
+      const data = response.data;
+      const answer = data.answer || "No structured explanation could be generated.";
 
-      if (
-        answer &&
-        String(answer).trim()
-      ) {
-        setExplanation(
-          String(answer).trim()
-        );
-      } else {
-        setExplanationError(
-          "I couldn't generate an explanation from the uploaded document."
-        );
+      if (data.conversation_id) {
+        setActiveConversationId(data.conversation_id);
+        if (data.conversation_title) {
+          setActiveConversationTitle(data.conversation_title);
+        }
       }
-    } catch (error) {
-      console.error(
-        "Error explaining document:",
-        error
-      );
 
-      const backendError =
-        error?.response?.data?.error;
+      const aiMessage = {
+        type: "ai",
+        text: answer,
+        sources: [targetDoc],
+        queryUsed: promptText,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages([...updatedMessages, aiMessage]);
 
-      setExplanationError(
-        backendError
-          ? `Unable to explain the document: ${backendError}`
-          : "Unable to explain the document. Please make sure the NexusAI backend is running."
-      );
+      // Refresh sidebar conversations
+      fetchConversations();
+    } catch (err) {
+      console.error("Document explanation error:", err);
+      const errorDetail =
+        err.response?.data?.detail ||
+        err.message ||
+        "Failed to generate comprehensive explanation. Check backend availability.";
+
+      setMessages([
+        ...updatedMessages,
+        {
+          type: "ai",
+          text: errorDetail,
+          isError: true,
+          queryUsed: promptText,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
     } finally {
-      setExplaining(false);
+      setLoading(false);
     }
   };
 
-  // ============================================================
-  // SIMPLE MARKDOWN-LIKE RENDERER
-  // ============================================================
+  // ----------------------------------------------------
+  // Voice Input (Speech Recognition)
+  // ----------------------------------------------------
+  const toggleVoiceInput = () => {
+    if (loading || uploading) return;
 
-  const renderExplanation = () => {
-    if (!explanation) {
-      return null;
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Voice input is not supported in this browser. Please use Chrome or Edge.");
+      return;
     }
 
-    const lines =
-      explanation.split("\n");
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
 
-    return (
-      <div
-        style={{
-          color: "var(--nx-text-secondary)",
-          fontSize: "15px",
-          lineHeight: "1.75",
-        }}
-      >
-        {lines.map(
-          (line, index) => {
-            const trimmed =
-              line.trim();
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
 
-            if (!trimmed) {
-              return (
-                <div
-                  key={index}
-                  style={{
-                    height: "8px",
-                  }}
-                />
-              );
-            }
+      recognition.onstart = () => setIsListening(true);
+      recognition.onresult = (event) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript.trim()) {
+          setQuestion(transcript.trim());
+        }
+      };
+      recognition.onerror = (event) => {
+        console.warn("Speech recognition error:", event.error);
+        setIsListening(false);
+      };
+      recognition.onend = () => {
+        setIsListening(false);
+        recognitionRef.current = null;
+      };
 
-            if (
-              trimmed.startsWith("### ")
-            ) {
-              return (
-                <h3
-                  key={index}
-                  style={{
-                    margin:
-                      "20px 0 8px 0",
-                    color: "var(--nx-text)",
-                    fontSize: "19px",
-                    lineHeight: "1.4",
-                  }}
-                >
-                  {trimmed
-                    .replace(
-                      /^###\s+/,
-                      ""
-                    )}
-                </h3>
-              );
-            }
-
-            if (
-              trimmed.startsWith("## ")
-            ) {
-              return (
-                <h3
-                  key={index}
-                  style={{
-                    margin:
-                      "20px 0 8px 0",
-                    color: "var(--nx-text)",
-                    fontSize: "19px",
-                  }}
-                >
-                  {trimmed
-                    .replace(
-                      /^##\s+/,
-                      ""
-                    )}
-                </h3>
-              );
-            }
-
-            if (
-              trimmed.startsWith("- ") ||
-              trimmed.startsWith("* ")
-            ) {
-              return (
-                <div
-                  key={index}
-                  style={{
-                    display: "flex",
-                    gap: "9px",
-                    marginBottom:
-                      "7px",
-                    paddingLeft:
-                      "4px",
-                  }}
-                >
-                  <span
-                    style={{
-                      color: "var(--nx-primary)",
-                      fontWeight: "700",
-                    }}
-                  >
-                    •
-                  </span>
-
-                  <span>
-                    {formatInlineText(
-                      trimmed.substring(2)
-                    )}
-                  </span>
-                </div>
-              );
-            }
-
-            return (
-              <p
-                key={index}
-                style={{
-                  margin:
-                    "0 0 10px 0",
-                }}
-              >
-                {formatInlineText(
-                  trimmed
-                )}
-              </p>
-            );
-          }
-        )}
-      </div>
-    );
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error("Failed to start voice recognition:", err);
+      setIsListening(false);
+    }
   };
 
-  // ============================================================
-  // INLINE FORMATTING
-  // ============================================================
+  // ----------------------------------------------------
+  // Send Message / Ask Question
+  // ----------------------------------------------------
+  const handleSendMessage = async (textToSend, options = {}) => {
+    const query = (textToSend || question).trim();
+    if (!query || loading) return;
 
-  const formatInlineText = (
-    text
-  ) => {
-    const parts =
-      text.split(
-        /(\*\*[^*]+\*\*|`[^`]+`)/g
-      );
+    const { isRegenerate = false, targetIndex = null } = options;
 
-    return parts.map(
-      (part, index) => {
-        if (
-          part.startsWith("**") &&
-          part.endsWith("**")
-        ) {
-          return (
-            <strong
-              key={index}
-              style={{
-                color: "var(--nx-text)",
-              }}
-            >
-              {part.slice(
-                2,
-                -2
-              )}
-            </strong>
-          );
+    let updatedMessages = [...messages];
+    if (!isRegenerate) {
+      const userMessage = {
+        type: "user",
+        text: query,
+        timestamp: new Date().toISOString(),
+      };
+      updatedMessages = [...updatedMessages, userMessage];
+      setMessages(updatedMessages);
+      setQuestion("");
+    } else if (targetIndex !== null && targetIndex < updatedMessages.length) {
+      updatedMessages = updatedMessages.filter((_, idx) => idx !== targetIndex);
+      setMessages(updatedMessages);
+    }
+
+    userScrolledUpRef.current = false;
+    setShowScrollBottom(false);
+    setLoading(true);
+    setTimeout(() => {
+      scrollToBottom("smooth");
+    }, 20);
+
+    if (selectedDocuments.length > 0) {
+      setLoadingStatusText("Searching document context...");
+    } else {
+      setLoadingStatusText("NexusAI is thinking...");
+    }
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const requestBody = {
+      question: query,
+      filenames: selectedDocuments,
+      filename: selectedDocuments.length === 1 ? selectedDocuments[0] : null,
+      conversation_id: activeConversationId,
+    };
+
+    // 1. LOCAL AI (Streaming with Qwen)
+    if (processingMode === "local") {
+      try {
+        const response = await fetch(`${API_BASE_URL}/local-chat`, {
+          method: "POST",
+          headers: getAuthHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify(requestBody),
+          signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Local AI request failed: ${response.status}`);
         }
 
-        if (
-          part.startsWith("`") &&
-          part.endsWith("`")
-        ) {
-          return (
-            <code
-              key={index}
-              style={{
-                background:
-                  "var(--nx-surface-2)",
-                padding:
-                  "2px 6px",
-                borderRadius:
-                  "4px",
-                fontSize:
-                  "13px",
-              }}
-            >
-              {part.slice(
-                1,
-                -1
-              )}
-            </code>
-          );
+        // Capture conversation headers if returned
+        const headerConvId = response.headers.get("X-Conversation-Id");
+        const headerConvTitle = response.headers.get("X-Conversation-Title");
+        if (headerConvId) {
+          const parsedId = parseInt(headerConvId, 10);
+          setActiveConversationId(parsedId);
+          if (headerConvTitle) setActiveConversationTitle(headerConvTitle);
         }
 
-        return (
-          <React.Fragment
-            key={index}
-          >
-            {part}
-          </React.Fragment>
-        );
+        if (!response.body) {
+          throw new Error("Streaming response is not supported.");
+        }
+
+        const initialAiMessages = [
+          ...updatedMessages,
+          {
+            type: "ai",
+            text: "",
+            sources: selectedDocuments.length > 0 ? selectedDocuments : [],
+            queryUsed: query,
+            timestamp: new Date().toISOString(),
+          },
+        ];
+        setMessages(initialAiMessages);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let accumulated = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          if (!chunk) continue;
+          accumulated += chunk;
+
+          setMessages((prev) => {
+            const copy = [...prev];
+            const lastIdx = copy.length - 1;
+            if (copy[lastIdx] && copy[lastIdx].type === "ai") {
+              copy[lastIdx] = { ...copy[lastIdx], text: accumulated };
+            }
+            return copy;
+          });
+        }
+
+        // Refresh conversations list in sidebar
+        fetchConversations();
+      } catch (err) {
+        if (err.name === "AbortError") {
+          console.log("Local generation was stopped by user.");
+        } else {
+          console.error("Local AI streaming error:", err);
+          setMessages((prev) => [
+            ...prev,
+            {
+              type: "ai",
+              text: "Local AI failed to respond. Ensure local model is running or switch to Cloud mode.",
+              isError: true,
+              queryUsed: query,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+        }
+      } finally {
+        setLoading(false);
+        abortControllerRef.current = null;
       }
+      return;
+    }
+
+    // 2. CLOUD AI (Gemini)
+    try {
+      const response = await api.post("/chat", requestBody, {
+        signal: abortController.signal,
+      });
+
+      const data = response.data;
+      const answer = data.answer || "No response received.";
+      const sources = data.sources || (selectedDocuments.length > 0 ? selectedDocuments : []);
+
+      if (data.conversation_id) {
+        setActiveConversationId(data.conversation_id);
+        if (data.conversation_title) {
+          setActiveConversationTitle(data.conversation_title);
+        }
+      }
+
+      const finalAiMessages = [
+        ...updatedMessages,
+        {
+          type: "ai",
+          text: answer,
+          sources: sources,
+          queryUsed: query,
+          timestamp: new Date().toISOString(),
+        },
+      ];
+      setMessages(finalAiMessages);
+
+      // Refresh sidebar conversations
+      fetchConversations();
+    } catch (err) {
+      if (err.name === "CanceledError" || err.code === "ERR_CANCELED") {
+        console.log("Cloud request was stopped by user.");
+      } else {
+        console.error("Chat request error:", err);
+        const errorDetail =
+          err.response?.data?.detail ||
+          err.message ||
+          "Unable to complete chat request. Please check your connection.";
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "ai",
+            text: errorDetail,
+            isError: true,
+            queryUsed: query,
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
+    } finally {
+      setLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  // ----------------------------------------------------
+  // Handle Keyboard Submit
+  // ----------------------------------------------------
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  // ----------------------------------------------------
+  // Document Selection Modal Handlers
+  // ----------------------------------------------------
+  const openDocumentModal = () => {
+    setModalSelectedDocs([...selectedDocuments]);
+    setDocSearchQuery("");
+    setShowDocModal(true);
+    fetchWorkspaceDocuments();
+  };
+
+  const toggleModalDocSelection = (filename) => {
+    setModalSelectedDocs((prev) =>
+      prev.includes(filename)
+        ? prev.filter((f) => f !== filename)
+        : [...prev, filename]
     );
   };
 
-  // ============================================================
-  // CHAT MODE TEXT
-  // ============================================================
+  const handleApplyDocumentSelection = () => {
+    updateSelectedDocuments(modalSelectedDocs);
+    setShowDocModal(false);
+  };
 
+  // ----------------------------------------------------
+  // File Upload via Plus Button
+  // ----------------------------------------------------
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      alert(`File exceeds maximum size of ${MAX_UPLOAD_SIZE_MB}MB.`);
+      return;
+    }
 
-  // ============================================================
-  // LOADING
-  // ============================================================
+    setUploading(true);
+    setShowPlusMenu(false);
+    const formData = new FormData();
+    formData.append("file", file);
 
-  if (!loaded) {
-    return (
-      <div
-        style={{
-          marginTop: "30px",
-          background: "#f8f9fa",
-          borderRadius: "12px",
-          padding: "20px",
-          minHeight: "300px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--nx-text-muted)",
-        }}
-      >
-        Loading chat...
-      </div>
-    );
-  }
+    try {
+      const response = await api.post("/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
-  // ============================================================
-  // RENDER
-  // ============================================================
+      const uploadedName = response.data?.filename || file.name;
+      alert(`"${file.name}" uploaded successfully!`);
+      await fetchWorkspaceDocuments();
+
+      if (!selectedDocuments.includes(uploadedName)) {
+        updateSelectedDocuments([...selectedDocuments, uploadedName]);
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
+      alert(err.response?.data?.detail || "Document upload failed.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const filteredModalDocs = availableDocuments.filter((doc) => {
+    const name = doc.filename || doc.name || "";
+    return name.toLowerCase().includes(docSearchQuery.toLowerCase());
+  });
 
   return (
-    <div
-      style={{
-        marginTop: "24px",
-        background: "var(--nx-surface)",
-        border: "1px solid var(--nx-border)",
-        borderRadius: "18px",
-        padding: "22px",
-        minHeight: "calc(100vh - 245px)",
-        display: "flex",
-        flexDirection: "column",
-        boxShadow: "0 12px 35px rgba(15, 23, 42, 0.06)",
-        overflow: "hidden",
-      }}
-    >
-      {/* ======================================================
-          HEADER
-      ====================================================== */}
+    <div className="nx-chat-workspace">
+      {/* ========================================================
+          STYLES
+      ======================================================== */}
+      <style>{`
+        .nx-chat-workspace {
+          display: flex;
+          width: 100%;
+          height: 100%;
+          flex: 1;
+          min-height: 0;
+          background: var(--nx-surface, #ffffff);
+          border: 1px solid var(--nx-border, #e2e8f0);
+          border-radius: 16px;
+          overflow: hidden;
+          box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+          position: relative;
+        }
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent:
-            "space-between",
-          alignItems: "center",
-          gap: "15px",
-          marginBottom: "18px",
-          flexWrap: "wrap",
-          paddingBottom: "16px",
-          borderBottom: "1px solid var(--nx-border)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-          }}
-        >
-          <FaRobot
-            size={28}
-            color="var(--nx-primary)"
-          />
+        /* --------------------------------------------------
+           CONVERSATION SIDEBAR
+        -------------------------------------------------- */
+        .nx-conv-sidebar {
+          width: 270px;
+          flex-shrink: 0;
+          height: 100%;
+          min-height: 0;
+          background: var(--nx-bg, #f8fafc);
+          border-right: 1px solid var(--nx-border, #e2e8f0);
+          display: flex;
+          flex-direction: column;
+          transition: transform 0.25s ease, width 0.25s ease;
+          overflow: hidden;
+          z-index: 10;
+        }
 
-          <h2
-            style={{
-              margin: 0,
-              color: "var(--nx-text)",
-              fontSize: "21px",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            NexusAI Assistant
-          </h2>
-        </div>
+        .nx-conv-sidebar-header {
+          padding: 16px 14px 12px;
+          border-bottom: 1px solid var(--nx-border, #e2e8f0);
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
 
-        <button
-          type="button"
-          onClick={
-            handleNewChat
+        .nx-new-chat-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%;
+          padding: 10px 14px;
+          border-radius: 10px;
+          border: 1px solid var(--nx-primary-border, #bfdbfe);
+          background: var(--nx-primary-soft, #eff6ff);
+          color: var(--nx-primary, #2563eb);
+          font-size: 13.5px;
+          font-weight: 750;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .nx-new-chat-btn:hover {
+          background: var(--nx-primary, #2563eb);
+          color: #ffffff;
+          border-color: var(--nx-primary, #2563eb);
+          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+        }
+
+        .nx-conv-list-header {
+          padding: 12px 16px 6px;
+          font-size: 11px;
+          font-weight: 800;
+          color: var(--nx-text-muted, #64748b);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .nx-conv-list {
+          flex: 1;
+          overflow-y: auto;
+          padding: 6px 10px 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+        }
+
+        .nx-conv-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 9px 12px;
+          border-radius: 9px;
+          font-size: 13.5px;
+          color: var(--nx-text, #0f172a);
+          cursor: pointer;
+          transition: all 0.15s ease;
+          border: 1px solid transparent;
+          position: relative;
+          group: true;
+        }
+
+        .nx-conv-item:hover {
+          background: var(--nx-surface, #ffffff);
+          border-color: var(--nx-border, #e2e8f0);
+        }
+
+        .nx-conv-item.active {
+          background: var(--nx-primary-soft, #eff6ff);
+          border-color: var(--nx-primary-border, #bfdbfe);
+          color: var(--nx-primary, #2563eb);
+          font-weight: 700;
+        }
+
+        .nx-conv-title {
+          flex: 1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          margin-right: 6px;
+        }
+
+        .nx-conv-actions {
+          display: none;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .nx-conv-item:hover .nx-conv-actions,
+        .nx-conv-item.active .nx-conv-actions {
+          display: flex;
+        }
+
+        .nx-conv-action-btn {
+          background: transparent;
+          border: none;
+          color: var(--nx-text-muted, #64748b);
+          padding: 4px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+          display: grid;
+          placeItems: center;
+          transition: all 0.15s ease;
+        }
+
+        .nx-conv-action-btn:hover {
+          color: var(--nx-text, #0f172a);
+          background: rgba(0,0,0,0.06);
+        }
+
+        .nx-conv-action-btn.delete:hover {
+          color: #dc2626;
+          background: #fee2e2;
+        }
+
+        .nx-conv-empty {
+          padding: 30px 16px;
+          text-align: center;
+          color: var(--nx-text-muted, #64748b);
+          font-size: 13px;
+        }
+
+        /* --------------------------------------------------
+           MAIN CHAT VIEWPORT
+        -------------------------------------------------- */
+        .nx-main-chat {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          height: 100%;
+          min-height: 0;
+          background: var(--nx-surface, #ffffff);
+          overflow: hidden;
+          position: relative;
+        }
+
+        .nx-chat-header {
+          padding: 14px 24px;
+          border-bottom: 1px solid var(--nx-border, #e2e8f0);
+          background: var(--nx-surface, #ffffff);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+
+        .nx-context-bar {
+          padding: 8px 24px;
+          background: var(--nx-bg, #f8fafc);
+          border-bottom: 1px solid var(--nx-border, #e2e8f0);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+          font-size: 13px;
+        }
+
+        .nx-doc-pills {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+
+        .nx-doc-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 3px 10px;
+          background: var(--nx-primary-soft, #eff6ff);
+          border: 1px solid var(--nx-primary-border, #bfdbfe);
+          color: var(--nx-primary, #2563eb);
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 650;
+        }
+
+        .nx-doc-pill-remove {
+          border: none;
+          background: transparent;
+          color: var(--nx-primary, #2563eb);
+          cursor: pointer;
+          padding: 0;
+          display: grid;
+          placeItems: center;
+          font-size: 11px;
+          opacity: 0.75;
+          transition: opacity 0.15s ease;
+        }
+
+        .nx-doc-pill-remove:hover {
+          opacity: 1;
+        }
+
+        .nx-messages-viewport {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
+          padding: 20px 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        }
+
+        .nx-messages-viewport::-webkit-scrollbar {
+          width: 6px;
+        }
+        .nx-messages-viewport::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .nx-messages-viewport::-webkit-scrollbar-thumb {
+          background: rgba(100, 116, 139, 0.25);
+          border-radius: 999px;
+        }
+        .nx-messages-viewport::-webkit-scrollbar-thumb:hover {
+          background: rgba(100, 116, 139, 0.45);
+        }
+
+        .nx-message-row {
+          display: flex;
+          width: 100%;
+          animation: nx-fade-in 0.2s ease-in-out;
+        }
+
+        .nx-message-row-user {
+          justify-content: flex-end;
+        }
+
+        .nx-message-row-ai {
+          justify-content: flex-start;
+        }
+
+        @keyframes nx-fade-in {
+          from { opacity: 0; transform: translateY(4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --------------------------------------------------
+           USER MESSAGE BUBBLE (Compact, clean, modern)
+        -------------------------------------------------- */
+        .nx-bubble-user {
+          margin-left: auto;
+          background: var(--nx-primary, #2563eb);
+          color: #ffffff;
+          border-radius: 14px;
+          border-bottom-right-radius: 4px;
+          padding: 10px 16px;
+          max-width: 72%;
+          width: fit-content;
+          box-shadow: 0 2px 10px rgba(37, 99, 235, 0.16);
+          font-size: 14.5px;
+          line-height: 1.55;
+          word-break: break-word;
+        }
+
+        /* --------------------------------------------------
+           ASSISTANT ANSWER (Clean enterprise typography, NO card)
+        -------------------------------------------------- */
+        .nx-bubble-ai {
+          width: 100%;
+          max-width: 100%;
+          background: transparent;
+          color: var(--nx-text, #0f172a);
+          border: none;
+          box-shadow: none;
+          padding: 2px 0 6px 0;
+          position: relative;
+        }
+
+        .nx-ai-text-content {
+          font-size: 14.5px;
+          line-height: 1.68;
+          color: var(--nx-text, #0f172a);
+          word-break: break-word;
+          padding-right: 36px;
+        }
+
+        /* --------------------------------------------------
+           TOP-RIGHT COPY BUTTON
+        -------------------------------------------------- */
+        .nx-ai-copy-btn {
+          position: absolute;
+          top: 0;
+          right: 0;
+          width: 26px;
+          height: 26px;
+          display: grid;
+          place-items: center;
+          border-radius: 6px;
+          border: 1px solid var(--nx-border, #e2e8f0);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text-muted, #64748b);
+          cursor: pointer;
+          font-size: 11px;
+          transition: all 0.15s ease;
+          z-index: 2;
+          opacity: 0.85;
+        }
+
+        .nx-ai-copy-btn:hover {
+          opacity: 1;
+          background: var(--nx-primary-soft, #eff6ff);
+          color: var(--nx-primary, #2563eb);
+          border-color: var(--nx-primary-border, #bfdbfe);
+        }
+
+        .nx-ai-copy-btn.copied {
+          opacity: 1;
+          background: #dcfce7;
+          color: #16a34a;
+          border-color: #86efac;
+        }
+
+        /* --------------------------------------------------
+           COPY TOAST & ERROR BUBBLE
+        -------------------------------------------------- */
+        .nx-copy-toast {
+          position: fixed;
+          bottom: 24px;
+          left: 50%;
+          transform: translateX(-50%);
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 16px;
+          border-radius: 999px;
+          background: #0f172a;
+          color: #ffffff;
+          font-size: 12.5px;
+          font-weight: 600;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+          z-index: 99999;
+          animation: nx-fade-in 0.2s ease;
+          pointer-events: none;
+        }
+
+        .nx-copy-toast.error {
+          background: #991b1b;
+        }
+
+        .nx-bubble-error {
+          background: #fef2f2;
+          color: #991b1b;
+          border: 1px solid #fecaca;
+          border-radius: 12px;
+          padding: 12px 16px;
+          max-width: 85%;
+          font-size: 14px;
+          line-height: 1.5;
+        }
+
+        .nx-loading-bubble {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 16px;
+          background: var(--nx-bg, #f8fafc);
+          border: 1px solid var(--nx-border, #e2e8f0);
+          border-radius: 12px;
+          color: var(--nx-text-muted, #64748b);
+          font-size: 13.5px;
+          font-weight: 600;
+        }
+
+        .nx-dot-pulse {
+          display: inline-flex;
+          gap: 4px;
+        }
+
+        .nx-dot-pulse span {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: var(--nx-primary, #2563eb);
+          animation: nx-pulse 1.2s infinite ease-in-out;
+        }
+
+        .nx-dot-pulse span:nth-child(2) { animation-delay: 0.2s; }
+        .nx-dot-pulse span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes nx-pulse {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40% { transform: scale(1.1); opacity: 1; }
+        }
+
+        .nx-jump-btn {
+          position: absolute;
+          bottom: 95px;
+          right: 28px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 14px;
+          border-radius: 999px;
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-primary, #2563eb);
+          border: 1px solid var(--nx-primary-border, #bfdbfe);
+          box-shadow: 0 4px 14px rgba(37,99,235,0.18);
+          font-size: 12px;
+          font-weight: 750;
+          cursor: pointer;
+          z-index: 20;
+          transition: all 0.15s ease;
+        }
+
+        .nx-jump-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 18px rgba(37,99,235,0.25);
+        }
+
+        .nx-chat-footer {
+          padding: 12px 24px 18px;
+          border-top: 1px solid var(--nx-border, #e2e8f0);
+          background: var(--nx-surface, #ffffff);
+          position: relative;
+        }
+
+        .nx-composer-box {
+          display: flex;
+          align-items: flex-end;
+          gap: 10px;
+          background: var(--nx-bg, #f8fafc);
+          border: 1px solid var(--nx-border, #cbd5e1);
+          border-radius: 14px;
+          padding: 8px 12px;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .nx-composer-box:focus-within {
+          border-color: var(--nx-primary, #2563eb);
+          box-shadow: 0 0 0 3px var(--nx-primary-soft, rgba(37,99,235,0.15));
+        }
+
+        .nx-textarea {
+          flex: 1;
+          border: none;
+          background: transparent;
+          color: var(--nx-text, #0f172a);
+          font-size: 14.5px;
+          line-height: 1.5;
+          font-family: inherit;
+          resize: none;
+          outline: none;
+          padding: 6px 4px;
+          max-height: 160px;
+          min-height: 24px;
+          overflow-y: auto;
+        }
+
+        /* Modal Overlay & Card System */
+        .nx-modal-overlay {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(10, 15, 29, 0.65);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          padding: 20px;
+        }
+
+        .nx-modal-card {
+          width: 100%;
+          max-width: 520px;
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text, #0f172a);
+          border-radius: 16px;
+          border: 1px solid var(--nx-border, #e2e8f0);
+          box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
+          overflow: hidden;
+          animation: nx-fade-in 0.2s ease;
+        }
+
+        /* Dedicated Document Selector Modal Elements */
+        .nx-doc-modal-header {
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--nx-border, #e2e8f0);
+          background: var(--nx-surface, #ffffff);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .nx-doc-modal-title {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 800;
+          color: var(--nx-text, #0f172a);
+        }
+        .nx-doc-modal-subtitle {
+          font-size: 12px;
+          color: var(--nx-text-muted, #64748b);
+          margin-top: 2px;
+        }
+        .nx-doc-modal-close {
+          border: none;
+          background: transparent;
+          font-size: 16px;
+          color: var(--nx-text-muted, #64748b);
+          cursor: pointer;
+          padding: 4px 8px;
+          border-radius: 6px;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .nx-doc-modal-close:hover {
+          background: var(--nx-surface-3, #eef2f7);
+          color: var(--nx-text, #0f172a);
+        }
+        .nx-doc-modal-search-wrap {
+          padding: 14px 20px;
+          background: var(--nx-surface, #ffffff);
+        }
+        .nx-doc-modal-search-input {
+          width: 100%;
+          padding: 9px 12px;
+          border-radius: 8px;
+          border: 1px solid var(--nx-border, #cbd5e1);
+          background: var(--nx-surface-2, #f8fafc);
+          color: var(--nx-text, #0f172a);
+          font-size: 13.5px;
+          outline: none;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .nx-doc-modal-search-input:focus {
+          border-color: var(--nx-primary, #2563eb);
+          box-shadow: 0 0 0 3px var(--nx-primary-soft, rgba(37,99,235,0.15));
+        }
+        .nx-doc-modal-search-input::placeholder {
+          color: var(--nx-text-muted, #94a3b8);
+        }
+        .nx-doc-modal-list {
+          max-height: 260px;
+          overflow-y: auto;
+          padding: 0 20px 10px;
+          background: var(--nx-surface, #ffffff);
+        }
+        .nx-doc-modal-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 12px;
+          border-radius: 8px;
+          cursor: pointer;
+          background: transparent;
+          border: 1px solid transparent;
+          margin-bottom: 4px;
+          transition: background 0.15s ease, border-color 0.15s ease;
+          user-select: none;
+        }
+        .nx-doc-modal-row:hover {
+          background: var(--nx-surface-3, #f1f5f9);
+        }
+        .nx-doc-modal-row.selected {
+          background: var(--nx-primary-soft, #eff6ff);
+          border-color: var(--nx-primary-border, #bfdbfe);
+        }
+        .nx-doc-modal-checkbox {
+          cursor: pointer;
+          width: 16px;
+          height: 16px;
+          accent-color: var(--nx-primary, #2563eb);
+          flex-shrink: 0;
+        }
+        .nx-doc-modal-icon {
+          flex-shrink: 0;
+          color: var(--nx-primary, #2563eb);
+          font-size: 13px;
+        }
+        .nx-doc-modal-name {
+          font-size: 13.5px;
+          font-weight: 550;
+          color: var(--nx-text, #0f172a);
+          flex: 1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .nx-doc-modal-row.selected .nx-doc-modal-name {
+          font-weight: 650;
+          color: var(--nx-primary, #2563eb);
+        }
+        .nx-doc-modal-footer {
+          padding: 14px 20px;
+          border-top: 1px solid var(--nx-border, #e2e8f0);
+          background: var(--nx-surface-2, #f8fafc);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .nx-doc-modal-btn-clear {
+          border: none;
+          background: transparent;
+          color: var(--nx-text-muted, #64748b);
+          font-size: 12.5px;
+          cursor: pointer;
+          font-weight: 600;
+          padding: 6px 10px;
+          border-radius: 6px;
+          transition: color 0.15s ease, background 0.15s ease;
+        }
+        .nx-doc-modal-btn-clear:hover {
+          color: var(--nx-text, #0f172a);
+          background: var(--nx-surface-3, #e2e8f0);
+        }
+        .nx-doc-modal-btn-cancel {
+          padding: 7px 14px;
+          border-radius: 8px;
+          border: 1px solid var(--nx-border, #cbd5e1);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text, #334155);
+          font-size: 13px;
+          font-weight: 650;
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+        .nx-doc-modal-btn-cancel:hover {
+          background: var(--nx-surface-3, #f1f5f9);
+        }
+        .nx-doc-modal-btn-apply {
+          padding: 7px 16px;
+          border-radius: 8px;
+          border: none;
+          background: var(--nx-primary, #2563eb);
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .nx-doc-modal-btn-apply:hover {
+          background: var(--nx-primary-hover, #1d4ed8);
+          transform: translateY(-1px);
+        }
+
+        /* Mobile responsiveness */
+        @media (max-width: 900px) {
+          .nx-conv-sidebar {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            transform: translateX(${sidebarOpen ? "0" : "-100%"});
+            box-shadow: 4px 0 20px rgba(0,0,0,0.1);
           }
-          style={{
-            border: "none",
-            background: "var(--nx-primary)",
-            color: "var(--nx-surface)",
-            padding: "10px 15px",
-            borderRadius: "10px",
-            fontSize: "14px",
-            fontWeight: "700",
-            cursor: "pointer",
-            boxShadow: "0 5px 14px rgba(37,99,235,0.20)",
-            transition: "all 0.2s ease",
-          }}
-        >
-          ＋ New Chat
-        </button>
-      </div>
+        }
 
-      {/* ======================================================
-          SELECTED DOCUMENTS
-      ====================================================== */}
+        @media (max-width: 768px) {
+          .nx-chat-header {
+            padding: 12px 16px;
+          }
+          .nx-context-bar {
+            padding: 8px 16px;
+          }
+          .nx-messages-viewport {
+            padding: 16px;
+          }
+          .nx-message-bubble {
+            max-width: 92%;
+          }
+          .nx-chat-footer {
+            padding: 10px 14px 14px;
+          }
+          .nx-jump-btn {
+            bottom: 80px;
+            right: 16px;
+          }
+        }
+      `}</style>
 
-      {selectedDocuments.length > 0 && (
-        <div
-          style={{
-            background: "var(--nx-bg)",
-            padding: "10px 12px",
-            borderRadius: "12px",
-            marginBottom: "10px",
-            border: "1px solid var(--nx-border)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              flexWrap: "wrap",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "7px",
-                color: "var(--nx-text)",
-                fontWeight: "700",
-                fontSize: "14px",
-                flexShrink: 0,
-              }}
-            >
-              📚 Selected
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "7px",
-                flex: 1,
-                minWidth: 0,
-                overflowX: "auto",
-                paddingBottom: "1px",
-              }}
-            >
-              {selectedDocuments.map((filename) => (
-                <div
-                  key={filename}
-                  title={filename}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "7px",
-                    padding: "7px 10px",
-                    background: "var(--nx-primary-soft)",
-                    border: "1px solid var(--nx-primary-border)",
-                    borderRadius: "8px",
-                    color: "var(--nx-primary-hover)",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                    maxWidth: "320px",
-                  }}
-                >
-                  <span>📄</span>
-                  <span
-                    style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {filename}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div
-              style={{
-                padding: "4px 9px",
-                borderRadius: "20px",
-                background: "#dcfce7",
-                color: "#166534",
-                fontSize: "11px",
-                fontWeight: "700",
-                flexShrink: 0,
-              }}
-            >
-              {selectedDocuments.length}{" "}
-              {selectedDocuments.length === 1 ? "document" : "documents"}
-            </div>
-          </div>
-
-          <div
-            style={{
-              marginTop: "7px",
-              color: "var(--nx-text-muted)",
-              fontSize: "11px",
-              lineHeight: "1.4",
-            }}
-          >
-            🔒 Only the selected {selectedDocuments.length === 1 ? "document" : "documents"} will be used for this chat.
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================
-          EXPLAIN ENTIRE DOCUMENT
-      ====================================================== */}
-
-      {selectedDocuments.length === 1 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "12px",
-            padding: "9px 12px",
-            marginBottom: "10px",
-            borderRadius: "10px",
-            background: "var(--nx-primary-soft)",
-            border: "1px solid var(--nx-primary-border)",
-            flexWrap: "wrap",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              minWidth: 0,
-            }}
-          >
-            <span style={{ fontSize: "16px" }}>📖</span>
-            <span
-              style={{
-                color: "var(--nx-text)",
-                fontSize: "13px",
-                fontWeight: "700",
-              }}
-            >
-              Need a quick overview?
-            </span>
-            <span
-              style={{
-                color: "var(--nx-text-muted)",
-                fontSize: "12px",
-              }}
-            >
-              Explain the entire document
-            </span>
-          </div>
-
+      {/* ========================================================
+          1. CONVERSATIONS HISTORY SIDEBAR
+      ======================================================== */}
+      <aside className="nx-conv-sidebar">
+        <div className="nx-conv-sidebar-header">
           <button
             type="button"
-            onClick={handleExplainDocument}
-            disabled={explaining}
-            style={{
-              border: "none",
-              background: explaining
-                ? "var(--nx-text-muted)"
-                : "var(--nx-primary)",
-              color: "#ffffff",
-              padding: "7px 12px",
-              borderRadius: "7px",
-              fontSize: "12px",
-              fontWeight: "700",
-              cursor: explaining ? "not-allowed" : "pointer",
-              whiteSpace: "nowrap",
-              boxShadow: "0 2px 6px rgba(37,99,235,0.18)",
-              flexShrink: 0,
-            }}
+            onClick={handleNewChat}
+            className="nx-new-chat-btn"
+            aria-label="Start a new conversation"
           >
-            {explaining ? "⏳ Explaining..." : "📖 Explain Document"}
+            <FaPlus size={12} />
+            <span>+ New Chat</span>
           </button>
         </div>
-      )}
 
-      {/* ======================================================
-          EXPLANATION ERROR
-      ====================================================== */}
-
-      {explanationError && (
-        <div
-          style={{
-            background:
-              "#fef2f2",
-            border:
-              "1px solid #fecaca",
-            color:
-              "#b91c1c",
-            padding:
-              "13px 15px",
-            borderRadius:
-              "9px",
-            marginBottom:
-              "20px",
-            fontSize:
-              "14px",
-          }}
-        >
-          ⚠️ {explanationError}
+        <div className="nx-conv-list-header">
+          Recent
         </div>
-      )}
 
-      {/* ======================================================
-          EXPLANATION LOADING
-      ====================================================== */}
+        <div className="nx-conv-list">
+          {loadingConversations ? (
+            <div className="nx-conv-empty">
+              Loading conversations...
+            </div>
+          ) : conversationLoadError ? (
+            <div className="nx-conv-empty" style={{ color: "#b91c1c" }}>
+              {conversationLoadError}
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="nx-conv-empty">
+              <div style={{ fontWeight: 650, marginBottom: "4px" }}>No conversations yet</div>
+              <div style={{ fontSize: "11.5px" }}>Start a new conversation to begin.</div>
+            </div>
+          ) : (
+            conversations.map((conv) => {
+              const isActive = conv.id === activeConversationId;
+              const isEditing = conv.id === editingConvId;
 
-      {explaining && (
-        <div
-          style={{
-            background:
-              "var(--nx-surface)",
-            borderRadius:
-              "12px",
-            padding:
-              "28px",
-            marginBottom:
-              "20px",
-            textAlign:
-              "center",
-            boxShadow:
-              "0 2px 8px rgba(0,0,0,0.08)",
-          }}
-        >
-          <div
-            style={{
-              fontSize:
-                "32px",
-              marginBottom:
-                "10px",
-            }}
-          >
-            🧠
-          </div>
+              if (isEditing) {
+                return (
+                  <form
+                    key={conv.id}
+                    onSubmit={handleSaveRename}
+                    style={{ padding: "4px 8px" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="text"
+                      value={editingTitleText}
+                      onChange={(e) => setEditingTitleText(e.target.value)}
+                      autoFocus
+                      maxLength={100}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        fontSize: "13px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--nx-primary, #2563eb)",
+                        outline: "none",
+                        background: "#ffffff",
+                      }}
+                      onBlur={handleSaveRename}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setEditingConvId(null);
+                      }}
+                    />
+                  </form>
+                );
+              }
 
-          <h3
-            style={{
-              margin:
-                "0 0 7px 0",
-              color:
-                "var(--nx-text)",
-            }}
-          >
-            Reading the entire document...
-          </h3>
+              return (
+                <div
+                  key={conv.id}
+                  onClick={() => selectConversation(conv.id)}
+                  className={`nx-conv-item ${isActive ? "active" : ""}`}
+                  title={conv.title}
+                >
+                  <span className="nx-conv-title">{conv.title}</span>
 
-          <p
-            style={{
-              margin: 0,
-              color:
-                "var(--nx-text-muted)",
-              fontSize:
-                "14px",
-            }}
-          >
-            NexusAI is preparing a
-            complete explanation.
-            This may take a moment.
-          </p>
+                  <div className="nx-conv-actions">
+                    <button
+                      type="button"
+                      onClick={(e) => handleStartRename(e, conv)}
+                      className="nx-conv-action-btn"
+                      aria-label="Rename conversation"
+                      title="Rename"
+                    >
+                      <FaEdit />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingConv(conv);
+                      }}
+                      className="nx-conv-action-btn delete"
+                      aria-label="Delete conversation"
+                      title="Delete"
+                    >
+                      <FaTrash />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
-      )}
+      </aside>
 
-      {/* ======================================================
-          EXPLANATION RESULT
-      ====================================================== */}
+      {/* ========================================================
+          2. MAIN CHAT WORKSPACE
+      ======================================================== */}
+      <div className="nx-main-chat">
+        {/* HEADER BAR */}
+        <header className="nx-chat-header">
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((prev) => !prev)}
+              aria-label="Toggle conversations sidebar"
+              className="nx-conv-action-btn"
+              style={{
+                display: "grid",
+                placeItems: "center",
+                padding: "8px",
+                borderRadius: "8px",
+                border: "1px solid var(--nx-border, #e2e8f0)",
+              }}
+            >
+              <FaBars size={14} />
+            </button>
 
-      {explanation && (
-        <div
-          style={{
-            background:
-              "var(--nx-surface)",
-            borderRadius:
-              "12px",
-            padding:
-              "24px",
-            marginBottom:
-              "20px",
-            boxShadow:
-              "0 2px 8px rgba(0,0,0,0.08)",
-            border:
-              "1px solid var(--nx-border)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent:
-                "space-between",
-              alignItems:
-                "center",
-              gap: "10px",
-              marginBottom:
-                "18px",
-              paddingBottom:
-                "14px",
-              borderBottom:
-                "1px solid var(--nx-border)",
-              flexWrap:
-                "wrap",
-            }}
-          >
             <div>
-              <div
+              <h2
                 style={{
-                  color:
-                    "var(--nx-primary)",
-                  fontSize:
-                    "12px",
-                  fontWeight:
-                    "800",
-                  textTransform:
-                    "uppercase",
-                  letterSpacing:
-                    "0.05em",
+                  margin: 0,
+                  fontSize: "18px",
+                  fontWeight: 850,
+                  color: "var(--nx-text, #0f172a)",
+                  letterSpacing: "-0.02em",
+                  maxWidth: "360px",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
+                title={activeConversationTitle || "NexusAI Assistant"}
               >
-                Document Explanation
-              </div>
-
-              <div
-                style={{
-                  marginTop:
-                    "4px",
-                  color:
-                    "var(--nx-text)",
-                  fontSize:
-                    "17px",
-                  fontWeight:
-                    "700",
-                  wordBreak:
-                    "break-word",
-                }}
-              >
-                📄{" "}
-                {
-                  selectedDocuments[0]
-                }
+                {activeConversationTitle || "NexusAI Assistant"}
+              </h2>
+              <div style={{ marginTop: "2px", color: "var(--nx-text-muted, #64748b)", fontSize: "12px" }}>
+                AI Powered Document Intelligence & Conversational RAG
               </div>
             </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            {/* Privacy Shield Badge */}
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                padding: "6px 12px",
+                borderRadius: "999px",
+                background: "rgba(16, 185, 129, 0.1)",
+                border: "1px solid rgba(16, 185, 129, 0.25)",
+                color: "#059669",
+                fontSize: "11.5px",
+                fontWeight: 750,
+              }}
+              title="Privacy-Aware Advanced RAG active: PII Redaction, Hybrid Retrieval, Prompt Injection Shield"
+            >
+              🛡️ Privacy-Aware RAG
+            </span>
+
+            {/* AI Mode Toggle Button */}
+            <button
+              type="button"
+              onClick={handleToggleMode}
+              title="Click to switch AI processing mode"
+              aria-label={`Current mode: ${processingMode === "local" ? "Local Qwen3" : "Cloud Gemini"}. Click to switch.`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "7px",
+                padding: "7px 13px",
+                borderRadius: "999px",
+                border: "1px solid var(--nx-primary-border, #bfdbfe)",
+                background: "var(--nx-primary-soft, #eff6ff)",
+                color: "var(--nx-primary, #2563eb)",
+                fontSize: "12px",
+                fontWeight: 750,
+                cursor: "pointer",
+              }}
+            >
+              {processingMode === "local" ? <FaDesktop /> : <FaCloud />}
+              <span>{processingMode === "local" ? "Local · Qwen3" : "Cloud · Gemini"}</span>
+            </button>
+
+            {/* New Chat Button */}
+            <button
+              type="button"
+              onClick={handleNewChat}
+              aria-label="Start a new chat conversation"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "7px 13px",
+                borderRadius: "999px",
+                border: "1px solid var(--nx-border, #cbd5e1)",
+                background: "var(--nx-surface, #ffffff)",
+                color: "var(--nx-text, #0f172a)",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              <FaPlus size={10} />
+              <span>New Chat</span>
+            </button>
+          </div>
+        </header>
+
+        {/* CONTEXT BAR */}
+        <section className="nx-context-bar" aria-label="Active document context">
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flex: 1 }}>
+            <span style={{ fontWeight: 750, color: "var(--nx-text-secondary, #475569)", fontSize: "12px" }}>
+              Context:
+            </span>
+
+            {selectedDocuments.length === 0 ? (
+              <span style={{ color: "var(--nx-text-muted, #64748b)", fontStyle: "italic", fontSize: "12.5px" }}>
+                No documents selected · General AI Mode
+              </span>
+            ) : (
+              <div className="nx-doc-pills">
+                {selectedDocuments.map((docName) => (
+                  <span key={docName} className="nx-doc-pill">
+                    <FaFileAlt size={10} />
+                    <span>{docName}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeSelectedDocument(docName)}
+                      className="nx-doc-pill-remove"
+                      aria-label={`Remove ${docName} from context`}
+                      title="Remove from context"
+                    >
+                      <FaTimes />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            {selectedDocuments.length === 1 && (
+              <button
+                type="button"
+                onClick={handleExplainDocument}
+                disabled={loading}
+                aria-label="Generate comprehensive explanation of selected document"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 11px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--nx-primary-border, #bfdbfe)",
+                  background: "var(--nx-primary-soft, #eff6ff)",
+                  color: "var(--nx-primary, #2563eb)",
+                  fontSize: "12px",
+                  fontWeight: 750,
+                  cursor: loading ? "wait" : "pointer",
+                }}
+              >
+                <FaBookOpen size={12} />
+                <span>Explain Document</span>
+              </button>
+            )}
 
             <button
               type="button"
-              onClick={
-                handleExplainDocument
-              }
-              disabled={
-                explaining
-              }
+              onClick={openDocumentModal}
+              aria-label="Select workspace documents"
               style={{
-                border:
-                  "1px solid var(--nx-primary-border)",
-                background:
-                  "var(--nx-primary-soft)",
-                color:
-                  "var(--nx-primary-hover)",
-                padding:
-                  "8px 12px",
-                borderRadius:
-                  "7px",
-                fontSize:
-                  "13px",
-                fontWeight:
-                  "700",
-                cursor:
-                  explaining
-                    ? "not-allowed"
-                    : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 11px",
+                borderRadius: "8px",
+                border: "1px solid var(--nx-border, #cbd5e1)",
+                background: "var(--nx-surface, #ffffff)",
+                color: "var(--nx-text, #0f172a)",
+                fontSize: "12px",
+                fontWeight: 750,
+                cursor: "pointer",
               }}
             >
-              ↻ Explain Again
+              <FaFileAlt size={12} />
+              <span>Select Documents</span>
             </button>
-          </div>
 
-          {renderExplanation()}
+            {selectedDocuments.length > 0 && (
+              <button
+                type="button"
+                onClick={clearAllSelectedDocuments}
+                aria-label="Clear document context"
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--nx-text-muted, #64748b)",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Clear Context
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* CONVERSATION MESSAGES AREA */}
+        <main
+          ref={messagesContainerRef}
+          onScroll={handleContainerScroll}
+          className="nx-messages-viewport"
+        >
+
+          {messages.length === 0 ? (
+            /* CLEAN ENTERPRISE EMPTY STATE */
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "auto",
+                maxWidth: "540px",
+                textAlign: "center",
+                padding: "36px 20px",
+              }}
+            >
+              <h3
+                style={{
+                  margin: "0 0 10px 0",
+                  fontSize: "24px",
+                  fontWeight: 750,
+                  color: "var(--nx-text, #0f172a)",
+                  letterSpacing: "-0.025em",
+                }}
+              >
+                Start a conversation
+              </h3>
+
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "15px",
+                  color: "var(--nx-text-muted, #64748b)",
+                  lineHeight: 1.6,
+                }}
+              >
+                Ask questions, analyze documents, or explore your files.
+              </p>
+            </div>
+          ) : (
+            /* CLEAN MESSAGE STREAM */
+            messages.map((msg, index) => {
+              const isUser = msg.type === "user";
+              const isError = msg.isError;
+
+              if (isUser) {
+                return (
+                  <div key={index} className="nx-message-row nx-message-row-user">
+                    <div className="nx-bubble-user">
+                      <div style={{ whiteSpace: "pre-wrap" }}>{msg.text}</div>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (isError) {
+                return (
+                  <div key={index} className="nx-message-row nx-message-row-ai">
+                    <div className="nx-bubble-error">
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                        <FaExclamationTriangle style={{ flexShrink: 0, marginTop: "3px", fontSize: "16px" }} />
+                        <div style={{ flex: 1 }}>
+                          <div>{msg.text}</div>
+                          {msg.queryUsed && (
+                            <div style={{ marginTop: "10px" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleSendMessage(msg.queryUsed, { isRegenerate: true, targetIndex: index })}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  padding: "6px 12px",
+                                  borderRadius: "8px",
+                                  border: "1px solid #f87171",
+                                  background: "#ffffff",
+                                  color: "#b91c1c",
+                                  fontSize: "12px",
+                                  fontWeight: 750,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <FaRedo size={11} /> Retry
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              const isCopied = copiedMessageIndex === index;
+              const hasContent = Boolean(msg.text && msg.text.trim().length > 0);
+
+              return (
+                <div key={index} className="nx-message-row nx-message-row-ai">
+                  <div className="nx-bubble-ai">
+                    {/* Top-Right Copy Icon for Assistant Messages */}
+                    {hasContent && (
+                      <button
+                        type="button"
+                        onClick={() => handleCopyAnswer(msg.text, index)}
+                        className={`nx-ai-copy-btn ${isCopied ? "copied" : ""}`}
+                        aria-label={isCopied ? "Message copied" : "Copy response"}
+                        title={isCopied ? "Copied" : "Copy response"}
+                      >
+                        {isCopied ? (
+                          <FaCheck size={11} color="#16a34a" />
+                        ) : (
+                          <FaCopy size={11} />
+                        )}
+                      </button>
+                    )}
+
+                    {/* Assistant Markdown Content */}
+                    <div className="nx-ai-text-content">
+                      <MarkdownRenderer content={msg.text} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+
+          {/* LOADING & THINKING STATE */}
+          {loading && (
+            <div className="nx-message-row" style={{ justifyContent: "flex-start" }}>
+              <div className="nx-loading-bubble">
+                <span className="nx-dot-pulse">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span>{loadingStatusText}</span>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </main>
+
+        {/* Floating Jump to Latest Button */}
+        {showScrollBottom && (
+          <button
+            type="button"
+            onClick={() => {
+              userScrolledUpRef.current = false;
+              setShowScrollBottom(false);
+              scrollToBottom("smooth");
+            }}
+            className="nx-jump-btn"
+            aria-label="Jump to latest message"
+          >
+            <FaArrowDown size={11} />
+            <span>Latest</span>
+          </button>
+        )}
+
+        {/* INPUT COMPOSER */}
+        <footer className="nx-chat-footer">
+          <input
+            ref={fileInputRef}
+            type="file"
+            style={{ display: "none" }}
+            onChange={handleFileUpload}
+            accept=".pdf,.docx,.pptx,.txt,.xlsx"
+          />
+
+          <div className="nx-composer-box">
+            {/* Plus / Upload Button */}
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setShowPlusMenu((prev) => !prev)}
+                aria-label="Upload document or attach context"
+                title="Attach file"
+                style={{
+                  width: "34px",
+                  height: "34px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--nx-border, #cbd5e1)",
+                  background: "var(--nx-surface, #ffffff)",
+                  color: "var(--nx-text-secondary, #475569)",
+                  display: "grid",
+                  placeItems: "center",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <FaPlus />
+              </button>
+
+              {showPlusMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "44px",
+                    left: "0",
+                    background: "var(--nx-surface, #ffffff)",
+                    border: "1px solid var(--nx-border, #e2e8f0)",
+                    borderRadius: "12px",
+                    boxShadow: "0 10px 25px rgba(15,23,42,0.12)",
+                    padding: "6px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                    minWidth: "180px",
+                    zIndex: 50,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 12px",
+                      border: "none",
+                      background: "transparent",
+                      color: "var(--nx-text, #0f172a)",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <FaFileAlt size={12} color="#2563eb" />
+                    <span>Upload Document</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPlusMenu(false);
+                      openDocumentModal();
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 12px",
+                      border: "none",
+                      background: "transparent",
+                      color: "var(--nx-text, #0f172a)",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f1f5f9")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <FaBookOpen size={12} color="#059669" />
+                    <span>Select Existing Files</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Input Textarea */}
+            <textarea
+              ref={inputFieldRef}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                selectedDocuments.length > 0
+                  ? `Ask questions grounded in ${selectedDocuments.length} document${selectedDocuments.length > 1 ? "s" : ""}... (Shift+Enter for new line)`
+                  : "Ask NexusAI anything... (Shift+Enter for new line)"
+              }
+              rows={1}
+              className="nx-textarea"
+              aria-label="Chat input query"
+            />
+
+            {/* Voice Input Microphone */}
+            <button
+              type="button"
+              onClick={toggleVoiceInput}
+              aria-label={isListening ? "Listening to voice input..." : "Use voice input"}
+              title={isListening ? "Listening..." : "Voice Input"}
+              style={{
+                width: "34px",
+                height: "34px",
+                borderRadius: "10px",
+                border: isListening ? "1px solid #ef4444" : "1px solid var(--nx-border, #cbd5e1)",
+                background: isListening ? "#fee2e2" : "var(--nx-surface, #ffffff)",
+                color: isListening ? "#dc2626" : "var(--nx-text-secondary, #475569)",
+                display: "grid",
+                placeItems: "center",
+                cursor: "pointer",
+                fontSize: "13px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <FaMicrophone />
+            </button>
+
+            {/* Send / Stop Button */}
+            {loading ? (
+              <button
+                type="button"
+                onClick={handleStopGenerating}
+                aria-label="Stop generating response"
+                title="Stop generation"
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "10px",
+                  border: "none",
+                  background: "#dc2626",
+                  color: "#ffffff",
+                  display: "grid",
+                  placeItems: "center",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <FaStop />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleSendMessage()}
+                disabled={!question.trim()}
+                aria-label="Send message"
+                title="Send"
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "10px",
+                  border: "none",
+                  background: question.trim() ? "var(--nx-primary, #2563eb)" : "var(--nx-border, #cbd5e1)",
+                  color: "#ffffff",
+                  display: "grid",
+                  placeItems: "center",
+                  cursor: question.trim() ? "pointer" : "not-allowed",
+                  fontSize: "14px",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <FaPaperPlane />
+              </button>
+            )}
+          </div>
+        </footer>
+      </div>
+
+      {/* ========================================================
+          3. DELETE CONVERSATION CONFIRMATION MODAL
+      ======================================================== */}
+      {deletingConv && (
+        <div className="nx-modal-overlay">
+          <div className="nx-modal-card" style={{ maxWidth: "440px", padding: "24px" }}>
+            <div style={{ fontSize: "20px", fontWeight: 800, color: "var(--nx-text, #0f172a)", marginBottom: "8px" }}>
+              Delete conversation?
+            </div>
+            <p style={{ color: "var(--nx-text-muted, #64748b)", fontSize: "14px", lineHeight: 1.5, margin: "0 0 20px" }}>
+              This will permanently delete this conversation and its messages.
+              <br /><br />
+              <strong>Note:</strong> It will <em>NOT</em> delete your uploaded documents.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <button
+                type="button"
+                onClick={() => setDeletingConv(null)}
+                disabled={isDeleting}
+                className="nx-doc-modal-btn-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#dc2626",
+                  color: "#ffffff",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                  cursor: "pointer",
+                }}
+              >
+                {isDeleting ? "Deleting..." : "Delete Conversation"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* ======================================================
-          CHAT INPUT
-          Centered before the first message.
-          Bottom-aligned after the first message.
-      ====================================================== */}
+      {/* ========================================================
+          4. DOCUMENT SELECTOR MODAL
+      ======================================================== */}
+      {showDocModal && (
+        <div className="nx-modal-overlay">
+          <div className="nx-modal-card">
+            <div className="nx-doc-modal-header">
+              <div>
+                <h3 className="nx-doc-modal-title">
+                  Select Workspace Documents
+                </h3>
+                <div className="nx-doc-modal-subtitle">
+                  Attach documents for grounded RAG conversational retrieval
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDocModal(false)}
+                aria-label="Close document selector modal"
+                className="nx-doc-modal-close"
+              >
+                ✕
+              </button>
+            </div>
 
-      <div
-        style={{
-          minHeight: chatStarted ? "0" : "220px",
-          display: "flex",
-          alignItems: chatStarted ? "flex-end" : "center",
-          justifyContent: "center",
-          transition:
-            "min-height 0.25s ease, align-items 0.25s ease",
-          paddingTop: chatStarted ? "6px" : "12px",
-          paddingBottom: "4px",
-        }}
-      >
-        <div
-          style={{
-            width: "100%",
-            transition:
-              "transform 0.25s ease, width 0.25s ease",
-          }}
-        >
-          <ChatInput
-            selectedDocument={
-              selectedDocuments.length ===
-              1
-                ? selectedDocuments[0]
-                : ""
-            }
-            selectedDocuments={
-              selectedDocuments
-            }
-            onDocumentsChange={
-              handleDocumentsChange
-            }
-          />
+            <div className="nx-doc-modal-search-wrap">
+              <input
+                type="text"
+                value={docSearchQuery}
+                onChange={(e) => setDocSearchQuery(e.target.value)}
+                placeholder="Search documents by filename..."
+                className="nx-doc-modal-search-input"
+              />
+            </div>
+
+            <div className="nx-doc-modal-list">
+              {loadingDocs ? (
+                <div style={{ textAlign: "center", padding: "20px", color: "var(--nx-text-muted)" }}>
+                  Loading library documents...
+                </div>
+              ) : docLoadError ? (
+                <div style={{ color: "#ef4444", fontSize: "13px", padding: "10px", textAlign: "center" }}>
+                  {docLoadError}
+                </div>
+              ) : filteredModalDocs.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "24px", color: "var(--nx-text-muted)", fontSize: "13px" }}>
+                  No documents found matching search.
+                </div>
+              ) : (
+                filteredModalDocs.map((doc) => {
+                  const name = doc.filename || doc.name;
+                  const isChecked = modalSelectedDocs.includes(name);
+
+                  return (
+                    <label
+                      key={name}
+                      className={`nx-doc-modal-row ${isChecked ? "selected" : ""}`}
+                      title={name}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleModalDocSelection(name)}
+                        className="nx-doc-modal-checkbox"
+                      />
+                      <FaFileAlt className="nx-doc-modal-icon" />
+                      <span className="nx-doc-modal-name">
+                        {name}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="nx-doc-modal-footer">
+              <button
+                type="button"
+                onClick={() => setModalSelectedDocs([])}
+                className="nx-doc-modal-btn-clear"
+              >
+                Clear All
+              </button>
+
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowDocModal(false)}
+                  className="nx-doc-modal-btn-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyDocumentSelection}
+                  className="nx-doc-modal-btn-apply"
+                >
+                  Apply Selection ({modalSelectedDocs.length})
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+      {/* Copy Toast Notification */}
+      {copyToast.show && (
+        <div className={`nx-copy-toast ${copyToast.isError ? "error" : ""}`} role="status" aria-live="polite">
+          {copyToast.isError ? (
+            <FaExclamationTriangle size={13} color="#fca5a5" />
+          ) : (
+            <FaCheck size={12} color="#4ade80" />
+          )}
+          <span>{copyToast.message}</span>
+        </div>
+      )}
     </div>
   );
 }
