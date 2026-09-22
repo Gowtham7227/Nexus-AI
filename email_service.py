@@ -95,11 +95,11 @@ def _send_via_smtp(clean_email: str, otp: str) -> Dict[str, Any]:
         msg.attach(part2)
 
         if SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=5) as server:
                 server.login(SMTP_USERNAME, SMTP_PASSWORD)
                 server.sendmail(SMTP_USERNAME, [clean_email], msg.as_string())
         else:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=5) as server:
                 server.starttls()
                 server.login(SMTP_USERNAME, SMTP_PASSWORD)
                 server.sendmail(SMTP_USERNAME, [clean_email], msg.as_string())

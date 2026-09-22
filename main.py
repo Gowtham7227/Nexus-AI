@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import hashlib
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -69,6 +70,19 @@ from auth import (
     touch_conversation,
     set_conversation_documents,
     generate_conversation_title,
+    record_ai_metric,
+    get_user_analytics_summary,
+    get_user_latency_series,
+    get_user_rag_distribution,
+    get_user_model_stats,
+    save_message_feedback,
+    get_conversation_feedback,
+    compute_document_fingerprint,
+    compute_cache_key,
+    get_cached_response,
+    set_cached_response,
+    invalidate_document_cache,
+    clear_user_response_cache,
 )
 
 import shutil
@@ -78,6 +92,7 @@ import time
 import threading
 import io
 import zipfile
+import uuid
 
 from utils import extract_text
 from vector_store import create_vector_store
@@ -950,15 +965,17 @@ def upload_file(
             )
 
         # ----------------------------------------------------
-        # Stream file to disk with 100 MB size enforcement
+        # Stream file to disk with 100 MB size enforcement & SHA256 content hashing
         # ----------------------------------------------------
         total_bytes = 0
         chunk_size = 1024 * 1024  # 1 MB chunk buffer
+        hasher = hashlib.sha256()
         with open(file_path, "wb") as buffer:
             while True:
                 chunk = file.file.read(chunk_size)
                 if not chunk:
                     break
+                hasher.update(chunk)
                 total_bytes += len(chunk)
                 if total_bytes > MAX_UPLOAD_SIZE_BYTES:
                     buffer.close()
@@ -971,6 +988,8 @@ def upload_file(
                         detail=f"File is too large. Maximum allowed size is {MAX_UPLOAD_SIZE_MB} MB.",
                     )
                 buffer.write(chunk)
+
+        content_hash = hasher.hexdigest()
 
         # ----------------------------------------------------
         # Security Content Validation
@@ -1004,12 +1023,13 @@ def upload_file(
                         original_filename,
                         file_size,
                         file_type,
+                        content_hash,
                         created_at,
                         processing_status,
                         processing_error,
                         vector_status
                     )
-                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'processing', NULL, 'indexing')
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'processing', NULL, 'indexing')
                     """,
                     (
                         current_user["user_id"],
@@ -1017,6 +1037,7 @@ def upload_file(
                         original_filename,
                         file_size_bytes,
                         file_extension,
+                        content_hash,
                     ),
                 )
             else:
@@ -1026,6 +1047,7 @@ def upload_file(
                     SET original_filename = ?,
                         file_size = ?,
                         file_type = ?,
+                        content_hash = ?,
                         created_at = CURRENT_TIMESTAMP,
                         processing_status = 'processing',
                         processing_error = NULL,
@@ -1036,6 +1058,7 @@ def upload_file(
                         original_filename,
                         file_size_bytes,
                         file_extension,
+                        content_hash,
                         existing[0],
                     ),
                 )
@@ -1092,6 +1115,22 @@ class ChatRequest(BaseModel):
     filenames: list[str] | None = None
     filename: str | None = None
     conversation_id: int | None = None
+
+
+class FeedbackRequest(BaseModel):
+    conversation_id: int
+    rating: Any
+    message_id: int | None = None
+    reason: str | None = None
+    feedback_reason: str | None = None
+    feedback_text: str | None = None
+    note: str | None = None
+    latency_perceived: str | None = None
+    request_id: str | None = None
+
+
+CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() in ("true", "1", "yes")
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "86400"))
 
 
 # ============================================================
@@ -1502,6 +1541,8 @@ def chat(
     request: ChatRequest,
     current_user=Depends(get_current_user),
 ):
+    t_req_start = time.perf_counter()
+    request_id = str(uuid.uuid4())
     try:
         user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", "unknown")
         user_email = current_user.get("email") if isinstance(current_user, dict) else getattr(current_user, "email", "unknown")
@@ -1509,7 +1550,7 @@ def chat(
 
         # Stage [1] REQUEST PARSED
         print("=" * 70)
-        print(f"🔹 [STAGE 1] REQUEST PARSED: user_id={user_id}, question='{request.question[:60]}...', doc_count={len(filenames)}, filenames={filenames}")
+        print(f"🔹 [STAGE 1] REQUEST PARSED: req_id={request_id[:8]}, user_id={user_id}, question='{request.question[:60]}...', doc_count={len(filenames)}, filenames={filenames}")
 
         # Stage [2] AUTHENTICATION PASSED
         print(f"🔹 [STAGE 2] AUTHENTICATION PASSED: user_id={user_id}, email={user_email}")
@@ -1531,12 +1572,104 @@ def chat(
             validated_filenames,
         )
 
-        # General AI (No document selected)
+        active_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        normalized_query = request.question.strip()
+        doc_fingerprint = compute_document_fingerprint(current_user["user_id"], validated_filenames)
+        cache_key = compute_cache_key(current_user["user_id"], normalized_query, doc_fingerprint, active_model)
+
+        # ----------------------------------------------------
+        # RESPONSE CACHE CHECK
+        # ----------------------------------------------------
+        if CACHE_ENABLED:
+            cached = get_cached_response(current_user["user_id"], cache_key)
+            if cached:
+                total_ms = (time.perf_counter() - t_req_start) * 1000
+                msg_id = save_message(conv_id, "assistant", cached["answer"])
+                touch_conversation(conv_id, current_user["user_id"])
+                print(f"⚡ [CACHE HIT] Query resolved in {total_ms:.2f}ms (key={cache_key[:8]}...)")
+
+                record_ai_metric(
+                    request_id=request_id,
+                    user_id=current_user["user_id"],
+                    conversation_id=conv_id,
+                    query_type="cached",
+                    optimizer_strategy="cache_hit",
+                    retrieval_ms=0.0,
+                    total_ms=total_ms,
+                    citation_count=len(cached.get("citations", [])),
+                    grounding_score=cached.get("grounding", {}).get("grounding_score", 1.0) if cached.get("grounding") else 1.0,
+                    model=active_model,
+                    streaming=0,
+                    cache_hit=1,
+                    status="success",
+                )
+
+                return {
+                    "question": request.question,
+                    "filenames": validated_filenames,
+                    "sources": validated_filenames if validated_filenames else [],
+                    "mode": "cloud",
+                    "answer": cached["answer"],
+                    "response": cached["answer"],
+                    "citations": cached.get("citations", []),
+                    "grounding": cached.get("grounding") or {
+                        "grounding_score": 1.0,
+                        "supported_claim_ratio": 1.0,
+                        "unsupported_claim_ratio": 0.0,
+                    },
+                    "evidence_quality": "High",
+                    "conversation_id": conv_id,
+                    "conversation_title": conv_title,
+                    "request_id": request_id,
+                    "message_id": msg_id,
+                    "cache_hit": True,
+                }
+
+        # ----------------------------------------------------
+        # GENERAL AI (No document selected)
+        # ----------------------------------------------------
         if not validated_filenames:
             print("🌐 Executing General AI Chat (No documents attached)...")
+            t_gen_start = time.perf_counter()
             answer = ask_gemini_general(request.question)
-            save_message(conv_id, "assistant", answer)
+            gen_ms = (time.perf_counter() - t_gen_start) * 1000
+            total_ms = (time.perf_counter() - t_req_start) * 1000
+
+            msg_id = save_message(conv_id, "assistant", answer)
             touch_conversation(conv_id, current_user["user_id"])
+
+            if CACHE_ENABLED:
+                set_cached_response(
+                    user_id=current_user["user_id"],
+                    cache_key=cache_key,
+                    normalized_query=normalized_query,
+                    doc_fingerprint=doc_fingerprint,
+                    model=active_model,
+                    answer=answer,
+                    citations=[],
+                    grounding={"grounding_score": 1.0, "supported_claim_ratio": 1.0, "unsupported_claim_ratio": 0.0},
+                    conversation_id=conv_id,
+                    ttl_seconds=CACHE_TTL_SECONDS,
+                )
+
+            record_ai_metric(
+                request_id=request_id,
+                user_id=current_user["user_id"],
+                conversation_id=conv_id,
+                query_type="general_ai",
+                optimizer_strategy="direct_generation",
+                retrieval_ms=0.0,
+                generation_ms=gen_ms,
+                total_ms=total_ms,
+                output_tokens=len(answer.split()),
+                citation_count=0,
+                grounding_score=1.0,
+                model=active_model,
+                streaming=0,
+                cache_hit=0,
+                status="success",
+            )
+
             print(f"✅ [STAGE 10] CHAT SUCCESS: Mode=General AI, Answer Length={len(answer)} chars, Conv ID={conv_id}")
             print("=" * 70)
             return {
@@ -1549,11 +1682,15 @@ def chat(
                 "citations": [],
                 "grounding": {
                     "score": 1.0,
+                    "grounding_score": 1.0,
                     "supported_claim_ratio": 1.0,
                     "unsupported_claim_ratio": 0.0,
                 },
                 "conversation_id": conv_id,
                 "conversation_title": conv_title,
+                "request_id": request_id,
+                "message_id": msg_id,
+                "cache_hit": False,
             }
 
         # Stage [3] DOCUMENT LOOKUP START
@@ -1574,6 +1711,8 @@ def chat(
         context = retrieval_res["formatted_context"]
         evidence_quality = retrieval_res["evidence_quality"]
         raw_citations = retrieval_res.get("citations", [])
+        retrieval_timings = retrieval_res.get("timings", {})
+        strategy_info = retrieval_res.get("strategy", {})
 
         # Stage [6] ADVANCED RETRIEVAL RESULT
         print(f"🔹 [STAGE 6] ADVANCED RETRIEVAL RESULT: retrieved context length={len(context)} chars, evidence_quality={evidence_quality}")
@@ -1581,8 +1720,31 @@ def chat(
         if not context.strip():
             print("⚠️ No relevant context found across documents.")
             fallback_ans = "I couldn't find relevant information in the selected document(s)."
-            save_message(conv_id, "assistant", fallback_ans)
+            msg_id = save_message(conv_id, "assistant", fallback_ans)
             touch_conversation(conv_id, current_user["user_id"])
+            total_ms = (time.perf_counter() - t_req_start) * 1000
+
+            record_ai_metric(
+                request_id=request_id,
+                user_id=current_user["user_id"],
+                conversation_id=conv_id,
+                query_type=strategy_info.get("query_type", "document_rag"),
+                optimizer_strategy=strategy_info.get("complexity", "hybrid"),
+                retrieval_ms=retrieval_timings.get("total_retrieval_ms"),
+                chroma_ms=retrieval_timings.get("semantic_search_ms"),
+                bm25_ms=retrieval_timings.get("bm25_ms"),
+                cross_encoder_ms=retrieval_timings.get("cross_encoder_ms"),
+                compression_ms=retrieval_timings.get("compression_ms"),
+                generation_ms=0.0,
+                total_ms=total_ms,
+                citation_count=0,
+                grounding_score=1.0,
+                model=active_model,
+                streaming=0,
+                cache_hit=0,
+                status="insufficient_evidence",
+            )
+
             return {
                 "question": request.question,
                 "filenames": validated_filenames,
@@ -1593,6 +1755,7 @@ def chat(
                 "citations": [],
                 "grounding": {
                     "score": 1.0,
+                    "grounding_score": 1.0,
                     "supported_claim_ratio": 1.0,
                     "unsupported_claim_ratio": 0.0,
                     "is_insufficient_evidence": True,
@@ -1600,21 +1763,23 @@ def chat(
                 "evidence_quality": "Low",
                 "conversation_id": conv_id,
                 "conversation_title": conv_title,
+                "request_id": request_id,
+                "message_id": msg_id,
+                "cache_hit": False,
             }
 
         # Stage [7] GEMINI CALL START
-        active_model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
         print(f"🔹 [STAGE 7] GEMINI CALL START: model={active_model}, context_chars={len(context)}, question='{request.question[:60]}...'")
 
         # Generate Gemini answer via ModelProvider with Output Privacy Guard
-        start_time = time.time()
+        t_gen_start = time.perf_counter()
         gemini_provider = GeminiModelProvider()
         answer = gemini_provider.generate_response(
             context,
             request.question,
             user_id=str(user_id),
         )
-        elapsed_time = time.time() - start_time
+        gen_ms = (time.perf_counter() - t_gen_start) * 1000
 
         # Validate citations and compute grounding
         validated_answer, validated_citations = SourceCitationManager.validate_citations(
@@ -1627,19 +1792,60 @@ def chat(
             validated_citations,
         )
 
+        total_ms = (time.perf_counter() - t_req_start) * 1000
+
         # Stage [8] GEMINI RESPONSE RECEIVED
-        print(f"🔹 [STAGE 8] GEMINI RESPONSE RECEIVED: response_status=200, elapsed={elapsed_time:.2f}s, answer_chars={len(validated_answer) if validated_answer else 0}")
+        print(f"🔹 [STAGE 8] GEMINI RESPONSE RECEIVED: response_status=200, elapsed={gen_ms/1000:.2f}s, answer_chars={len(validated_answer) if validated_answer else 0}")
 
         # Stage [9] RESPONSE PARSED
         print(f"🔹 [STAGE 9] RESPONSE PARSED: parsed length={len(validated_answer) if validated_answer else 0} chars, sample='{str(validated_answer)[:80]}...'")
 
-        # Stage [10] CHAT SUCCESS
-        print(f"✅ [STAGE 10] CHAT SUCCESS: HTTP 200 returned for user_id={user_id}, docs={validated_filenames}, Conv ID={conv_id}")
-        print("=" * 70)
-
         # Save assistant answer to conversation
-        save_message(conv_id, "assistant", validated_answer)
+        msg_id = save_message(conv_id, "assistant", validated_answer)
         touch_conversation(conv_id, current_user["user_id"])
+
+        # Cache response
+        if CACHE_ENABLED:
+            set_cached_response(
+                user_id=current_user["user_id"],
+                cache_key=cache_key,
+                normalized_query=normalized_query,
+                doc_fingerprint=doc_fingerprint,
+                model=active_model,
+                answer=validated_answer,
+                citations=validated_citations,
+                grounding=grounding_eval,
+                conversation_id=conv_id,
+                ttl_seconds=CACHE_TTL_SECONDS,
+            )
+
+        # Record telemetry
+        record_ai_metric(
+            request_id=request_id,
+            user_id=current_user["user_id"],
+            conversation_id=conv_id,
+            query_type=strategy_info.get("query_type", "document_rag"),
+            optimizer_strategy=strategy_info.get("complexity", "hybrid"),
+            retrieval_ms=retrieval_timings.get("total_retrieval_ms"),
+            chroma_ms=retrieval_timings.get("semantic_search_ms"),
+            bm25_ms=retrieval_timings.get("bm25_ms"),
+            cross_encoder_ms=retrieval_timings.get("cross_encoder_ms"),
+            compression_ms=retrieval_timings.get("compression_ms"),
+            generation_ms=gen_ms,
+            total_ms=total_ms,
+            context_tokens=len(context.split()),
+            output_tokens=len(validated_answer.split()),
+            citation_count=len(validated_citations),
+            grounding_score=grounding_eval.get("grounding_score"),
+            model=active_model,
+            streaming=0,
+            cache_hit=0,
+            status="success",
+        )
+
+        # Stage [10] CHAT SUCCESS
+        print(f"✅ [STAGE 10] CHAT SUCCESS: HTTP 200 returned for user_id={user_id}, docs={validated_filenames}, Conv ID={conv_id} in {total_ms:.1f}ms")
+        print("=" * 70)
 
         return {
             "question": request.question,
@@ -1651,12 +1857,16 @@ def chat(
             "citations": validated_citations,
             "grounding": {
                 "score": grounding_eval["grounding_score"],
+                "grounding_score": grounding_eval["grounding_score"],
                 "supported_claim_ratio": grounding_eval["supported_claim_ratio"],
                 "unsupported_claim_ratio": grounding_eval["unsupported_claim_ratio"],
             },
             "evidence_quality": evidence_quality,
             "conversation_id": conv_id,
             "conversation_title": conv_title,
+            "request_id": request_id,
+            "message_id": msg_id,
+            "cache_hit": False,
         }
 
     except Exception as e:
@@ -1682,6 +1892,8 @@ def chat_stream(
     request: ChatRequest,
     current_user=Depends(get_current_user),
 ):
+    t_req_start = time.perf_counter()
+    request_id = str(uuid.uuid4())
     try:
         user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", "unknown")
         user_email = current_user.get("email") if isinstance(current_user, dict) else getattr(current_user, "email", "unknown")
@@ -1704,8 +1916,96 @@ def chat_stream(
             validated_filenames,
         )
 
+        active_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        normalized_query = request.question.strip()
+        doc_fingerprint = compute_document_fingerprint(current_user["user_id"], validated_filenames)
+        cache_key = compute_cache_key(current_user["user_id"], normalized_query, doc_fingerprint, active_model)
+
+        # ----------------------------------------------------
+        # STREAMING RESPONSE CACHE CHECK
+        # ----------------------------------------------------
+        if CACHE_ENABLED:
+            cached = get_cached_response(current_user["user_id"], cache_key)
+            if cached:
+                def cached_event_stream():
+                    # 1. Start event
+                    start_payload = {
+                        "conversation_id": conv_id,
+                        "conversation_title": conv_title,
+                        "filenames": validated_filenames,
+                        "mode": "cloud",
+                        "request_id": request_id,
+                        "cache_hit": True,
+                    }
+                    yield f"event: start\ndata: {json.dumps(start_payload)}\n\n"
+
+                    # 2. Token payload
+                    yield f"event: token\ndata: {json.dumps({'text': cached['answer']})}\n\n"
+
+                    # 3. Persist message
+                    msg_id = save_message(conv_id, "assistant", cached["answer"])
+                    touch_conversation(conv_id, current_user["user_id"])
+
+                    # 4. Complete payload
+                    total_ms = (time.perf_counter() - t_req_start) * 1000
+                    complete_payload = {
+                        "conversation_id": conv_id,
+                        "conversation_title": conv_title,
+                        "final_text": cached["answer"],
+                        "citations": cached.get("citations", []),
+                        "grounding": cached.get("grounding") or {
+                            "score": 1.0,
+                            "grounding_score": 1.0,
+                            "supported_claim_ratio": 1.0,
+                            "unsupported_claim_ratio": 0.0,
+                        },
+                        "status": "complete",
+                        "request_id": request_id,
+                        "message_id": msg_id,
+                        "cache_hit": True,
+                    }
+                    yield f"event: complete\ndata: {json.dumps(complete_payload)}\n\n"
+
+                    record_ai_metric(
+                        request_id=request_id,
+                        user_id=current_user["user_id"],
+                        conversation_id=conv_id,
+                        query_type="cached",
+                        optimizer_strategy="cache_hit",
+                        retrieval_ms=0.0,
+                        ttft_ms=total_ms,
+                        total_ms=total_ms,
+                        citation_count=len(cached.get("citations", [])),
+                        grounding_score=cached.get("grounding", {}).get("grounding_score", 1.0) if cached.get("grounding") else 1.0,
+                        model=active_model,
+                        streaming=1,
+                        cache_hit=1,
+                        status="success",
+                    )
+
+                return StreamingResponse(
+                    cached_event_stream(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Accel-Buffering": "no",
+                        "X-Conversation-Id": str(conv_id),
+                        "X-Conversation-Title": conv_title,
+                        "X-Request-Id": request_id,
+                    },
+                )
+
+        # ----------------------------------------------------
+        # LIVE GENERATION STREAM (Cache Miss)
+        # ----------------------------------------------------
         def event_stream():
             accumulated_text = ""
+            ttft_ms = None
+            retrieval_timings = {}
+            strategy_info = {}
+            stream_started = time.perf_counter()
+
             try:
                 # 1. Start event
                 start_payload = {
@@ -1713,14 +2013,19 @@ def chat_stream(
                     "conversation_title": conv_title,
                     "filenames": validated_filenames,
                     "mode": "cloud",
+                    "request_id": request_id,
                 }
                 yield f"event: start\ndata: {json.dumps(start_payload)}\n\n"
 
                 # 2. General AI (No document selected)
                 if not validated_filenames:
                     print(f"🌐 [STREAM] Executing General AI Chat Stream (user_id={user_id}, conv_id={conv_id})...")
+                    query_type = "general_ai"
+                    optimizer_strat = "direct_generation"
                     for chunk in ask_gemini_general_stream(request.question):
                         if chunk:
+                            if ttft_ms is None:
+                                ttft_ms = (time.perf_counter() - t_req_start) * 1000
                             accumulated_text += chunk
                             yield f"event: token\ndata: {json.dumps({'text': chunk})}\n\n"
 
@@ -1734,14 +2039,21 @@ def chat_stream(
                     )
                     context = retrieval_res["formatted_context"]
                     evidence_quality = retrieval_res["evidence_quality"]
+                    retrieval_timings = retrieval_res.get("timings", {})
+                    strategy_info = retrieval_res.get("strategy", {})
+                    query_type = strategy_info.get("query_type", "document_rag")
+                    optimizer_strat = strategy_info.get("complexity", "hybrid")
 
                     if not context.strip():
                         fallback_ans = "I couldn't find relevant information in the selected document(s)."
                         accumulated_text = fallback_ans
+                        ttft_ms = (time.perf_counter() - t_req_start) * 1000
                         yield f"event: token\ndata: {json.dumps({'text': fallback_ans})}\n\n"
                     else:
                         for chunk in ask_gemini_stream(context, request.question):
                             if chunk:
+                                if ttft_ms is None:
+                                    ttft_ms = (time.perf_counter() - t_req_start) * 1000
                                 accumulated_text += chunk
                                 yield f"event: token\ndata: {json.dumps({'text': chunk})}\n\n"
 
@@ -1750,7 +2062,7 @@ def chat_stream(
                 if was_redacted:
                     print(f"🛡️ [STREAM PRIVACY] Output sanitized: {reason}")
 
-                if validated_filenames and 'retrieval_res' in locals():
+                if validated_filenames and 'retrieval_res' in locals() and retrieval_res.get("top_chunks"):
                     raw_citations = retrieval_res.get("citations", [])
                     validated_text, validated_citations = SourceCitationManager.validate_citations(
                         safe_text, raw_citations, retrieval_res.get("top_chunks", [])
@@ -1765,27 +2077,75 @@ def chat_stream(
                     validated_text = safe_text
                     validated_citations = []
                     grounding_eval = {
+                        "score": 1.0,
                         "grounding_score": 1.0,
                         "supported_claim_ratio": 1.0,
                         "unsupported_claim_ratio": 0.0,
                     }
 
                 # 5. Persist final assistant response to SQLite
-                save_message(conv_id, "assistant", validated_text)
+                msg_id = save_message(conv_id, "assistant", validated_text)
                 touch_conversation(conv_id, current_user["user_id"])
 
-                # 6. Complete event
+                total_ms = (time.perf_counter() - t_req_start) * 1000
+                gen_ms = total_ms - (retrieval_timings.get("total_retrieval_ms") or 0.0)
+
+                # 6. Save in response cache (only on successful completed stream)
+                if CACHE_ENABLED and validated_text.strip():
+                    set_cached_response(
+                        user_id=current_user["user_id"],
+                        cache_key=cache_key,
+                        normalized_query=normalized_query,
+                        doc_fingerprint=doc_fingerprint,
+                        model=active_model,
+                        answer=validated_text,
+                        citations=validated_citations,
+                        grounding=grounding_eval,
+                        conversation_id=conv_id,
+                        ttl_seconds=CACHE_TTL_SECONDS,
+                    )
+
+                # 7. Record Telemetry
+                record_ai_metric(
+                    request_id=request_id,
+                    user_id=current_user["user_id"],
+                    conversation_id=conv_id,
+                    query_type=query_type,
+                    optimizer_strategy=optimizer_strat,
+                    retrieval_ms=retrieval_timings.get("total_retrieval_ms"),
+                    chroma_ms=retrieval_timings.get("semantic_search_ms"),
+                    bm25_ms=retrieval_timings.get("bm25_ms"),
+                    cross_encoder_ms=retrieval_timings.get("cross_encoder_ms"),
+                    compression_ms=retrieval_timings.get("compression_ms"),
+                    ttft_ms=ttft_ms,
+                    generation_ms=gen_ms,
+                    total_ms=total_ms,
+                    context_tokens=len(context.split()) if ('context' in locals() and context) else 0,
+                    output_tokens=len(validated_text.split()),
+                    citation_count=len(validated_citations),
+                    grounding_score=grounding_eval.get("grounding_score", 1.0),
+                    model=active_model,
+                    streaming=1,
+                    cache_hit=0,
+                    status="success",
+                )
+
+                # 8. Complete event
                 complete_payload = {
                     "conversation_id": conv_id,
                     "conversation_title": conv_title,
                     "final_text": validated_text,
                     "citations": validated_citations,
                     "grounding": {
-                        "score": grounding_eval["grounding_score"],
-                        "supported_claim_ratio": grounding_eval["supported_claim_ratio"],
-                        "unsupported_claim_ratio": grounding_eval["unsupported_claim_ratio"],
+                        "score": grounding_eval.get("grounding_score", 1.0),
+                        "grounding_score": grounding_eval.get("grounding_score", 1.0),
+                        "supported_claim_ratio": grounding_eval.get("supported_claim_ratio", 1.0),
+                        "unsupported_claim_ratio": grounding_eval.get("unsupported_claim_ratio", 0.0),
                     },
                     "status": "complete",
+                    "request_id": request_id,
+                    "message_id": msg_id,
+                    "cache_hit": False,
                 }
                 yield f"event: complete\ndata: {json.dumps(complete_payload)}\n\n"
 
@@ -1810,6 +2170,7 @@ def chat_stream(
                 "X-Accel-Buffering": "no",
                 "X-Conversation-Id": str(conv_id),
                 "X-Conversation-Title": conv_title,
+                "X-Request-Id": request_id,
             },
         )
 
@@ -2250,6 +2611,9 @@ def delete_document(
         # Delete from Chroma vector store and invalidate BM25 index
         delete_document_from_vector_store(filename)
 
+        # Invalidate response cache for this document
+        invalidate_document_cache(current_user["user_id"], filename)
+
         conn = sqlite3.connect(os.path.join(BASE_DIR, "auth.db"))
         conn.execute(
             """
@@ -2461,3 +2825,171 @@ def get_latest_evaluation(
         raise HTTPException(status_code=404, detail="No evaluation report found. Run POST /rag/evaluate first.")
     with open(report_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# ============================================================
+# v1.2.0 OBSERVABILITY & ANALYTICS APIs
+# ============================================================
+
+@app.get("/analytics/overview")
+def get_analytics_overview(
+    days: int = 7,
+    current_user=Depends(get_current_user),
+):
+    """Retrieve overall system analytics for the authenticated user."""
+    safe_days = max(1, min(days, 90))
+    user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", 1)
+    summary = get_user_analytics_summary(user_id, days=safe_days)
+    return summary
+
+
+@app.get("/analytics/latency")
+def get_analytics_latency(
+    days: int = 7,
+    limit: int = 50,
+    current_user=Depends(get_current_user),
+):
+    """Retrieve time-series latency breakdown records for charts."""
+    safe_days = max(1, min(days, 90))
+    safe_limit = max(1, min(limit, 200))
+    user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", 1)
+    data = get_user_latency_series(user_id, days=safe_days, limit=safe_limit)
+    return {"latency_series": data}
+
+
+@app.get("/analytics/rag")
+def get_analytics_rag(
+    days: int = 7,
+    current_user=Depends(get_current_user),
+):
+    """Retrieve query type distribution and RAG optimizer strategy breakdown."""
+    safe_days = max(1, min(days, 90))
+    user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", 1)
+    data = get_user_rag_distribution(user_id, days=safe_days)
+    return data
+
+
+@app.get("/analytics/models")
+def get_analytics_models(
+    days: int = 7,
+    current_user=Depends(get_current_user),
+):
+    """Retrieve per-model usage and latency metrics."""
+    safe_days = max(1, min(days, 90))
+    user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", 1)
+    data = get_user_model_stats(user_id, days=safe_days)
+    return {"models": data}
+
+
+# ============================================================
+# v1.2.0 USER FEEDBACK APIs
+# ============================================================
+
+@app.post("/feedback")
+def submit_feedback(
+    payload: FeedbackRequest,
+    current_user=Depends(get_current_user),
+):
+    """Submit user feedback (thumbs up/down, reason, notes) for a message."""
+    user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", 1)
+
+    # Verify conversation ownership
+    conv = get_conversation(payload.conversation_id, user_id)
+    if not conv:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found or access denied.",
+        )
+
+    # Sanitize and validate inputs
+    raw_rating = payload.rating
+    if raw_rating in (1, "1", "helpful"):
+        norm_rating = 1
+    elif raw_rating in (-1, "-1", "unhelpful"):
+        norm_rating = -1
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Rating must be 1/helpful (positive) or -1/unhelpful (negative).",
+        )
+
+    valid_reasons = {
+        "accurate", "fast", "helpful", "good_citations",
+        "hallucination", "missing_info", "slow", "poor_citations",
+        "incorrect_facts", "refused_answer", "other",
+        "incorrect_answer", "missing_information", "poor_citation", "irrelevant_sources", "too_verbose"
+    }
+    chosen_reason = payload.feedback_reason or payload.reason
+    if chosen_reason:
+        clean_reason = str(chosen_reason).strip().lower()
+        if clean_reason not in valid_reasons:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid feedback reason. Allowed: {', '.join(sorted(valid_reasons))}",
+            )
+        chosen_reason = clean_reason
+
+    clean_text = payload.feedback_text or payload.note
+    if clean_text:
+        clean_text = str(clean_text).strip()[:1000]
+
+    feedback_id = save_message_feedback(
+        user_id=user_id,
+        conversation_id=payload.conversation_id,
+        rating=norm_rating,
+        message_id=payload.message_id,
+        feedback_reason=chosen_reason,
+        feedback_text=clean_text,
+        latency_perceived=payload.latency_perceived,
+        request_id=payload.request_id,
+    )
+
+    if not feedback_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to record feedback. Invalid message or foreign message reference.",
+        )
+
+    return {
+        "status": "success",
+        "feedback_id": feedback_id,
+        "message": "Feedback recorded successfully",
+    }
+
+
+@app.get("/feedback/conversation/{conversation_id}")
+def get_conversation_feedback_route(
+    conversation_id: int,
+    current_user=Depends(get_current_user),
+):
+    """Get all feedback submitted for a conversation."""
+    user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", 1)
+
+    # Verify conversation ownership
+    conv = get_conversation(conversation_id, user_id)
+    if not conv:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found or access denied.",
+        )
+
+    feedback_list = get_conversation_feedback(conversation_id, user_id)
+    return {"feedback": feedback_list}
+
+
+# ============================================================
+# v1.2.0 CACHE MANAGEMENT APIs
+# ============================================================
+
+@app.post("/cache/clear")
+def clear_cache_route(
+    current_user=Depends(get_current_user),
+):
+    """Clear cached AI responses for the authenticated user."""
+    user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", 1)
+    cleared_count = clear_user_response_cache(user_id)
+    return {
+        "status": "success",
+        "cleared_entries": cleared_count,
+        "message": f"Successfully invalidated {cleared_count} cached response(s).",
+    }

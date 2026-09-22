@@ -20,6 +20,8 @@ import {
   FaBars,
   FaShieldAlt,
   FaExternalLinkAlt,
+  FaThumbsUp,
+  FaThumbsDown,
 } from "react-icons/fa";
 import MarkdownRenderer from "./MarkdownRenderer";
 
@@ -118,6 +120,13 @@ function ChatWindow() {
   const [copyToast, setCopyToast] = useState({ show: false, message: "", isError: false });
   const copyToastTimerRef = useRef(null);
   const [activeEvidence, setActiveEvidence] = useState(null);
+
+  // ----------------------------------------------------
+  // State: User Feedback & Telemetry
+  // ----------------------------------------------------
+  const [feedbackMap, setFeedbackMap] = useState({});
+  const [activeFeedbackModal, setActiveFeedbackModal] = useState(null);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
 
 
@@ -438,6 +447,76 @@ function ChatWindow() {
       copyToastTimerRef.current = setTimeout(() => {
         setCopyToast({ show: false, message: "", isError: false });
       }, 2200);
+    }
+  };
+
+  // ----------------------------------------------------
+  // User Feedback Handlers (Observability & Evaluation)
+  // ----------------------------------------------------
+  const handleFeedbackClick = async (msg, index, rating) => {
+    if (!activeConversationId) return;
+
+    if (rating === -1) {
+      setActiveFeedbackModal({
+        messageIndex: index,
+        messageId: msg.id || msg.message_id || null,
+        rating: -1,
+        reason: "hallucination",
+        feedbackText: "",
+      });
+      return;
+    }
+
+    try {
+      await api.post("/feedback", {
+        conversation_id: activeConversationId,
+        message_id: msg.id || msg.message_id || null,
+        rating: 1,
+        feedback_reason: "accurate",
+      });
+      setFeedbackMap((prev) => ({
+        ...prev,
+        [index]: { rating: 1, reason: "accurate" },
+      }));
+      if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current);
+      setCopyToast({ show: true, message: "Feedback recorded! Thank you.", isError: false });
+      copyToastTimerRef.current = setTimeout(() => {
+        setCopyToast({ show: false, message: "", isError: false });
+      }, 1800);
+    } catch (err) {
+      console.error("Feedback submit error:", err);
+    }
+  };
+
+  const handleDetailedFeedbackSubmit = async () => {
+    if (!activeFeedbackModal || !activeConversationId || isSubmittingFeedback) return;
+    try {
+      setIsSubmittingFeedback(true);
+      await api.post("/feedback", {
+        conversation_id: activeConversationId,
+        message_id: activeFeedbackModal.messageId,
+        rating: activeFeedbackModal.rating,
+        feedback_reason: activeFeedbackModal.reason,
+        feedback_text: activeFeedbackModal.feedbackText?.trim() || "",
+      });
+      setFeedbackMap((prev) => ({
+        ...prev,
+        [activeFeedbackModal.messageIndex]: {
+          rating: activeFeedbackModal.rating,
+          reason: activeFeedbackModal.reason,
+        },
+      }));
+      setActiveFeedbackModal(null);
+      if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current);
+      setCopyToast({ show: true, message: "Feedback submitted. Thank you!", isError: false });
+      copyToastTimerRef.current = setTimeout(() => {
+        setCopyToast({ show: false, message: "", isError: false });
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to submit detailed feedback:", err);
+      alert("Failed to submit feedback. Please try again.");
+    } finally {
+      setIsSubmittingFeedback(false);
     }
   };
 
@@ -1379,12 +1458,19 @@ function ChatWindow() {
         }
 
         /* --------------------------------------------------
-           TOP-RIGHT COPY BUTTON
+           TOP-RIGHT ACTION BAR (Copy & Feedback)
         -------------------------------------------------- */
-        .nx-ai-copy-btn {
+        .nx-ai-actions-bar {
           position: absolute;
           top: 0;
           right: 0;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          z-index: 2;
+        }
+
+        .nx-ai-action-btn {
           width: 26px;
           height: 26px;
           display: grid;
@@ -1396,7 +1482,42 @@ function ChatWindow() {
           cursor: pointer;
           font-size: 11px;
           transition: all 0.15s ease;
-          z-index: 2;
+          opacity: 0.85;
+        }
+
+        .nx-ai-action-btn:hover {
+          opacity: 1;
+          background: var(--nx-primary-soft, #eff6ff);
+          color: var(--nx-primary, #2563eb);
+          border-color: var(--nx-primary-border, #bfdbfe);
+        }
+
+        .nx-ai-action-btn.active-positive {
+          opacity: 1;
+          background: #dcfce7;
+          color: #16a34a;
+          border-color: #86efac;
+        }
+
+        .nx-ai-action-btn.active-negative {
+          opacity: 1;
+          background: #fee2e2;
+          color: #dc2626;
+          border-color: #fca5a5;
+        }
+
+        .nx-ai-copy-btn {
+          width: 26px;
+          height: 26px;
+          display: grid;
+          place-items: center;
+          border-radius: 6px;
+          border: 1px solid var(--nx-border, #e2e8f0);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text-muted, #64748b);
+          cursor: pointer;
+          font-size: 11px;
+          transition: all 0.15s ease;
           opacity: 0.85;
         }
 
@@ -1412,6 +1533,92 @@ function ChatWindow() {
           background: #dcfce7;
           color: #16a34a;
           border-color: #86efac;
+        }
+
+        /* --------------------------------------------------
+           FEEDBACK MODAL
+        -------------------------------------------------- */
+        .nx-feedback-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.6);
+          backdrop-filter: blur(4px);
+          z-index: 10000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          animation: nx-fade-in 0.15s ease;
+        }
+
+        .nx-feedback-modal-card {
+          width: 100%;
+          max-width: 480px;
+          background: var(--nx-surface, #ffffff);
+          border: 1px solid var(--nx-border, #e2e8f0);
+          border-radius: 16px;
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .nx-feedback-modal-header {
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--nx-border, #e2e8f0);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: var(--nx-bg, #f8fafc);
+        }
+
+        .nx-feedback-modal-body {
+          padding: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .nx-feedback-label {
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--nx-text, #0f172a);
+          margin-bottom: 4px;
+        }
+
+        .nx-feedback-select {
+          width: 100%;
+          padding: 9px 12px;
+          border-radius: 8px;
+          border: 1px solid var(--nx-border, #cbd5e1);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text, #0f172a);
+          font-size: 13.5px;
+          outline: none;
+        }
+
+        .nx-feedback-textarea {
+          width: 100%;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px solid var(--nx-border, #cbd5e1);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text, #0f172a);
+          font-size: 13.5px;
+          outline: none;
+          min-height: 80px;
+          resize: vertical;
+          font-family: inherit;
+        }
+
+        .nx-feedback-modal-footer {
+          padding: 14px 20px;
+          border-top: 1px solid var(--nx-border, #e2e8f0);
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          background: var(--nx-bg, #f8fafc);
         }
 
         /* --------------------------------------------------
@@ -2520,21 +2727,65 @@ function ChatWindow() {
               return (
                 <div key={index} className="nx-message-row nx-message-row-ai">
                   <div className="nx-bubble-ai">
-                    {/* Top-Right Copy Icon for Assistant Messages */}
+                    {/* Top-Right Action Bar for Assistant Messages */}
                     {hasContent && (
-                      <button
-                        type="button"
-                        onClick={() => handleCopyAnswer(msg.text, index)}
-                        className={`nx-ai-copy-btn ${isCopied ? "copied" : ""}`}
-                        aria-label={isCopied ? "Message copied" : "Copy response"}
-                        title={isCopied ? "Copied" : "Copy response"}
-                      >
-                        {isCopied ? (
-                          <FaCheck size={11} color="#16a34a" />
-                        ) : (
-                          <FaCopy size={11} />
+                      <div className="nx-ai-actions-bar">
+                        {msg.cache_hit && (
+                          <span
+                            className="nx-cached-badge"
+                            title="Instant cached response (0ms retrieval)"
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              background: "#f0fdf4",
+                              color: "#15803d",
+                              border: "1px solid #bbf7d0",
+                              marginRight: "4px",
+                            }}
+                          >
+                            ⚡ Cached
+                          </span>
                         )}
-                      </button>
+
+                        {/* Thumbs Up Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleFeedbackClick(msg, index, 1)}
+                          className={`nx-ai-action-btn ${feedbackMap[index]?.rating === 1 ? "active-positive" : ""}`}
+                          aria-label="Good response"
+                          title="Helpful & accurate"
+                        >
+                          <FaThumbsUp size={10} />
+                        </button>
+
+                        {/* Thumbs Down Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleFeedbackClick(msg, index, -1)}
+                          className={`nx-ai-action-btn ${feedbackMap[index]?.rating === -1 ? "active-negative" : ""}`}
+                          aria-label="Poor response"
+                          title="Report issue or inaccuracy"
+                        >
+                          <FaThumbsDown size={10} />
+                        </button>
+
+                        {/* Copy Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleCopyAnswer(msg.text, index)}
+                          className={`nx-ai-copy-btn ${isCopied ? "copied" : ""}`}
+                          aria-label={isCopied ? "Message copied" : "Copy response"}
+                          title={isCopied ? "Copied" : "Copy response"}
+                        >
+                          {isCopied ? (
+                            <FaCheck size={11} color="#16a34a" />
+                          ) : (
+                            <FaCopy size={11} />
+                          )}
+                        </button>
+                      </div>
                     )}
 
                     {/* Assistant Markdown Content */}
@@ -3038,6 +3289,85 @@ function ChatWindow() {
                 }}
               >
                 <FaExternalLinkAlt size={12} style={{ marginRight: "6px" }} /> Open Source Document
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          USER FEEDBACK MODAL (Quality & Observability)
+      ======================================================== */}
+      {activeFeedbackModal && (
+        <div className="nx-feedback-modal-backdrop" onClick={() => setActiveFeedbackModal(null)}>
+          <div className="nx-feedback-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="nx-feedback-modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <FaThumbsDown size={14} color="#dc2626" />
+                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--nx-text, #0f172a)" }}>
+                  Report Response Issue
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveFeedbackModal(null)}
+                className="nx-evidence-close-btn"
+                aria-label="Close feedback modal"
+              >
+                <FaTimes size={14} />
+              </button>
+            </div>
+
+            <div className="nx-feedback-modal-body">
+              <div>
+                <label className="nx-feedback-label">What was the primary issue?</label>
+                <select
+                  className="nx-feedback-select"
+                  value={activeFeedbackModal.reason}
+                  onChange={(e) =>
+                    setActiveFeedbackModal((prev) => ({ ...prev, reason: e.target.value }))
+                  }
+                >
+                  <option value="hallucination">Hallucination / Inaccurate information</option>
+                  <option value="missing_info">Missing critical details from documents</option>
+                  <option value="slow">Response was too slow</option>
+                  <option value="poor_citations">Incorrect or missing citations</option>
+                  <option value="incorrect_facts">Factual inaccuracies</option>
+                  <option value="refused_answer">Model refused to answer valid query</option>
+                  <option value="other">Other issue</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="nx-feedback-label">Optional notes or what you expected:</label>
+                <textarea
+                  className="nx-feedback-textarea"
+                  placeholder="Provide any details to help improve NexusAI retrieval & generation..."
+                  value={activeFeedbackModal.feedbackText || ""}
+                  onChange={(e) =>
+                    setActiveFeedbackModal((prev) => ({ ...prev, feedbackText: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="nx-feedback-modal-footer">
+              <button
+                type="button"
+                className="nx-evidence-btn-secondary"
+                onClick={() => setActiveFeedbackModal(null)}
+                disabled={isSubmittingFeedback}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="nx-evidence-btn-primary"
+                onClick={handleDetailedFeedbackSubmit}
+                disabled={isSubmittingFeedback}
+                style={{ background: "#dc2626", borderColor: "#b91c1c" }}
+              >
+                {isSubmittingFeedback ? "Submitting..." : "Submit Feedback"}
               </button>
             </div>
           </div>

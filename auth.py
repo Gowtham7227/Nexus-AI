@@ -1,7 +1,9 @@
 import os
 import sqlite3
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 
 from dotenv import load_dotenv
 import bcrypt
@@ -48,11 +50,27 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(6
 # Database
 # ============================================================
 
+import threading
+
+_thread_local = threading.local()
+
 def get_connection():
-    connection = sqlite3.connect(AUTH_DB)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    conn = getattr(_thread_local, "connection", None)
+    if conn is not None:
+        try:
+            conn.execute("SELECT 1")
+            return conn
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+            conn = None
+            _thread_local.connection = None
+
+    conn = sqlite3.connect(AUTH_DB, timeout=10.0, check_same_thread=True)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    _thread_local.connection = conn
+    return conn
 
 
 def init_auth_db():
@@ -61,8 +79,10 @@ def init_auth_db():
     Perform non-destructive schema migrations for existing databases.
     """
     connection = get_connection()
-
     try:
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA synchronous = NORMAL")
+        connection.execute("PRAGMA busy_timeout = 5000")
         # 1. Users table
         connection.execute(
             """
@@ -85,6 +105,7 @@ def init_auth_db():
                 original_filename TEXT,
                 file_size INTEGER DEFAULT 0,
                 file_type TEXT,
+                content_hash TEXT,
                 created_at TEXT NOT NULL,
                 processing_status TEXT DEFAULT 'completed',
                 processing_error TEXT,
@@ -135,7 +156,88 @@ def init_auth_db():
             """
         )
 
-        # 6. Indexes for high performance
+        # 6. AI Request Metrics (Telemetry & Observability)
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_request_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                conversation_id INTEGER,
+                timestamp TEXT NOT NULL,
+                query_type TEXT,
+                optimizer_strategy TEXT,
+                retrieval_ms REAL,
+                chroma_ms REAL,
+                bm25_ms REAL,
+                cross_encoder_ms REAL,
+                compression_ms REAL,
+                ttft_ms REAL,
+                generation_ms REAL,
+                total_ms REAL,
+                context_tokens INTEGER,
+                output_tokens INTEGER,
+                citation_count INTEGER DEFAULT 0,
+                grounding_score REAL,
+                model TEXT,
+                streaming INTEGER DEFAULT 0,
+                cache_hit INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'success',
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+            )
+            """
+        )
+
+        # 7. User Message Feedback Loop
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS message_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                conversation_id INTEGER,
+                message_id INTEGER,
+                request_id TEXT,
+                rating INTEGER NOT NULL,
+                feedback_reason TEXT,
+                reason TEXT,
+                feedback_text TEXT,
+                latency_perceived TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # 8. AI Response Cache (Tenant-Isolated & Document-Fingerprinted)
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_response_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cache_key TEXT UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL,
+                conversation_id INTEGER,
+                normalized_query TEXT NOT NULL,
+                document_fingerprint TEXT NOT NULL,
+                model TEXT NOT NULL,
+                prompt_version TEXT DEFAULT 'v1.1',
+                optimizer_version TEXT DEFAULT 'v1.1',
+                answer TEXT NOT NULL,
+                citations_json TEXT,
+                grounding_json TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                hit_count INTEGER DEFAULT 0,
+                last_accessed_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        # 9. Indexes for high performance & fast analytical querying
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)"
         )
@@ -148,8 +250,35 @@ def init_auth_db():
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_conv_docs_conv_id ON conversation_documents(conversation_id)"
         )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metrics_user_time ON ai_request_metrics(user_id, timestamp DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metrics_user_query ON ai_request_metrics(user_id, query_type)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metrics_user_model ON ai_request_metrics(user_id, model)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metrics_request_id ON ai_request_metrics(request_id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feedback_user_conv ON message_feedback(user_id, conversation_id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feedback_msg ON message_feedback(message_id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cache_key ON ai_response_cache(cache_key)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cache_user_expires ON ai_response_cache(user_id, expires_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cache_user_doc ON ai_response_cache(user_id, document_fingerprint)"
+        )
 
-        # 7. Schema migration: check for missing columns in existing documents table
+        # 10. Schema migration: check for missing columns in existing documents table
         cursor = connection.execute("PRAGMA table_info(documents)")
         existing_cols = {row["name"] for row in cursor.fetchall()}
 
@@ -157,6 +286,7 @@ def init_auth_db():
             "original_filename": "TEXT",
             "file_size": "INTEGER DEFAULT 0",
             "file_type": "TEXT",
+            "content_hash": "TEXT",
             "processing_status": "TEXT DEFAULT 'completed'",
             "processing_error": "TEXT",
             "vector_status": "TEXT DEFAULT 'indexed'",
@@ -177,6 +307,25 @@ def init_auth_db():
                     )
                 except Exception as migration_err:
                     print(f"Migration note ({col_name}):", str(migration_err))
+
+        # 11. Schema migration for message_feedback table
+        try:
+            fb_cursor = connection.execute("PRAGMA table_info(message_feedback)")
+            existing_fb_cols = {row["name"] for row in fb_cursor.fetchall()}
+            fb_col_defs = {
+                "feedback_reason": "TEXT",
+                "reason": "TEXT",
+                "feedback_text": "TEXT",
+                "latency_perceived": "TEXT",
+            }
+            for col_name, col_type in fb_col_defs.items():
+                if col_name not in existing_fb_cols:
+                    try:
+                        connection.execute(f"ALTER TABLE message_feedback ADD COLUMN {col_name} {col_type}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         connection.commit()
 
@@ -715,6 +864,626 @@ def get_document_privacy(
     finally:
         connection.close()
 
+
+# ============================================================
+# Telemetry & Observability Functions
+# ============================================================
+
+def record_ai_metric(
+    request_id: str,
+    user_id: int,
+    conversation_id: Optional[int] = None,
+    query_type: Optional[str] = None,
+    optimizer_strategy: Optional[str] = None,
+    retrieval_ms: Optional[float] = None,
+    chroma_ms: Optional[float] = None,
+    bm25_ms: Optional[float] = None,
+    cross_encoder_ms: Optional[float] = None,
+    compression_ms: Optional[float] = None,
+    ttft_ms: Optional[float] = None,
+    generation_ms: Optional[float] = None,
+    total_ms: Optional[float] = None,
+    context_tokens: Optional[int] = None,
+    output_tokens: Optional[int] = None,
+    citation_count: int = 0,
+    grounding_score: Optional[float] = None,
+    model: Optional[str] = None,
+    streaming: int = 0,
+    cache_hit: int = 0,
+    status: str = "success",
+) -> Optional[int]:
+    """
+    Safely records an AI request telemetry metric in SQLite.
+    Never throws exceptions so telemetry failure NEVER breaks chat.
+    """
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        connection = get_connection()
+        try:
+            cursor = connection.execute(
+                """
+                INSERT INTO ai_request_metrics (
+                    request_id, user_id, conversation_id, timestamp,
+                    query_type, optimizer_strategy, retrieval_ms, chroma_ms, bm25_ms,
+                    cross_encoder_ms, compression_ms, ttft_ms, generation_ms, total_ms,
+                    context_tokens, output_tokens, citation_count, grounding_score,
+                    model, streaming, cache_hit, status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    request_id, user_id, conversation_id, now,
+                    query_type, optimizer_strategy, retrieval_ms, chroma_ms, bm25_ms,
+                    cross_encoder_ms, compression_ms, ttft_ms, generation_ms, total_ms,
+                    context_tokens, output_tokens, citation_count, grounding_score,
+                    model, streaming, cache_hit, status,
+                ),
+            )
+            connection.commit()
+            return cursor.lastrowid
+        except Exception:
+            raise
+    except Exception as e:
+        print(f"[TELEMETRY WARNING] Failed to record AI metric: {e}")
+        return None
+
+
+def get_user_analytics_summary(user_id: int, days: int = 7) -> Dict[str, Any]:
+    """Calculate aggregate telemetry overview metrics for the authenticated user."""
+    safe_days = max(1, min(int(days), 90))
+    since = (datetime.now(timezone.utc) - timedelta(days=safe_days)).isoformat()
+    connection = get_connection()
+    try:
+        # 1. Metric aggregates
+        row = connection.execute(
+            """
+            SELECT
+                COUNT(*) as total_queries,
+                AVG(total_ms) as avg_total_latency,
+                AVG(retrieval_ms) as avg_retrieval_latency,
+                AVG(CASE WHEN streaming = 1 AND ttft_ms IS NOT NULL THEN ttft_ms ELSE NULL END) as avg_ttft,
+                AVG(CASE WHEN grounding_score IS NOT NULL THEN grounding_score ELSE NULL END) as avg_grounding,
+                SUM(citation_count) as total_citations,
+                SUM(cache_hit) as total_cache_hits,
+                SUM(streaming) as total_streaming_queries,
+                SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as total_errors
+            FROM ai_request_metrics
+            WHERE user_id = ? AND timestamp >= ?
+            """,
+            (user_id, since),
+        ).fetchone()
+
+        total_queries = int(row["total_queries"] or 0)
+        avg_total_latency = round(float(row["avg_total_latency"]), 2) if row["avg_total_latency"] is not None else 0.0
+        avg_retrieval_latency = round(float(row["avg_retrieval_latency"]), 2) if row["avg_retrieval_latency"] is not None else 0.0
+        avg_ttft = round(float(row["avg_ttft"]), 2) if row["avg_ttft"] is not None else 0.0
+        avg_grounding = round(float(row["avg_grounding"]), 4) if row["avg_grounding"] is not None else 1.0
+        total_citations = int(row["total_citations"] or 0)
+        total_cache_hits = int(row["total_cache_hits"] or 0)
+        total_streaming_queries = int(row["total_streaming_queries"] or 0)
+        total_errors = int(row["total_errors"] or 0)
+
+        cache_hit_rate = round((total_cache_hits / total_queries) * 100.0, 2) if total_queries > 0 else 0.0
+        streaming_rate = round((total_streaming_queries / total_queries) * 100.0, 2) if total_queries > 0 else 0.0
+
+        # 2. Feedback stats
+        fb_row = connection.execute(
+            """
+            SELECT
+                SUM(CASE WHEN rating IN ('helpful', '1', 1) THEN 1 ELSE 0 END) as helpful_count,
+                SUM(CASE WHEN rating IN ('unhelpful', '-1', -1) THEN 1 ELSE 0 END) as unhelpful_count
+            FROM message_feedback
+            WHERE user_id = ? AND created_at >= ?
+            """,
+            (user_id, since),
+        ).fetchone()
+
+        helpful_count = int(fb_row["helpful_count"] or 0)
+        unhelpful_count = int(fb_row["unhelpful_count"] or 0)
+        total_feedback = helpful_count + unhelpful_count
+        satisfaction = round((helpful_count / total_feedback) * 100.0, 1) if total_feedback > 0 else 100.0
+
+        # 3. Documents count & cache entries
+        doc_count_row = connection.execute(
+            "SELECT COUNT(*) as doc_count FROM documents WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        doc_count = int(doc_count_row["doc_count"] or 0)
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cache_row = connection.execute(
+            "SELECT COUNT(*) as active_cache FROM ai_response_cache WHERE user_id = ? AND expires_at > ?",
+            (user_id, now_iso),
+        ).fetchone()
+        active_cache = int(cache_row["active_cache"] or 0)
+
+        return {
+            "time_window_days": safe_days,
+            "total_queries": total_queries,
+            "total_requests": total_queries,
+            "avg_total_latency_ms": avg_total_latency,
+            "avg_total_ms": avg_total_latency,
+            "avg_retrieval_latency_ms": avg_retrieval_latency,
+            "avg_retrieval_ms": avg_retrieval_latency,
+            "avg_ttft_ms": avg_ttft,
+            "avg_grounding_score": avg_grounding,
+            "total_citations": total_citations,
+            "total_cache_hits": total_cache_hits,
+            "cache_hits": total_cache_hits,
+            "cache_hit_rate_pct": cache_hit_rate,
+            "cache_hit_ratio": cache_hit_rate,
+            "streaming_percentage": streaming_rate,
+            "streaming_requests": total_streaming_queries,
+            "error_count": total_errors,
+            "feedback_helpful_count": helpful_count,
+            "feedback_unhelpful_count": unhelpful_count,
+            "total_feedback": total_feedback,
+            "satisfaction_ratio": satisfaction,
+            "total_documents": doc_count,
+            "active_cache_entries": active_cache,
+        }
+    finally:
+        connection.close()
+
+
+def get_user_latency_series(user_id: int, days: int = 7, limit: int = 50) -> List[Dict[str, Any]]:
+    """Retrieve time-series latency breakdown points for telemetry charts."""
+    safe_days = max(1, min(int(days), 90))
+    limit = max(1, min(int(limit), 200))
+    since = (datetime.now(timezone.utc) - timedelta(days=safe_days)).isoformat()
+    connection = get_connection()
+    try:
+        rows = connection.execute(
+            """
+            SELECT
+                id, request_id, timestamp, query_type, model,
+                retrieval_ms, cross_encoder_ms, generation_ms, total_ms, ttft_ms,
+                cache_hit, streaming
+            FROM ai_request_metrics
+            WHERE user_id = ? AND timestamp >= ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, since, limit),
+        ).fetchall()
+        result = []
+        for r in reversed(rows):
+            d = dict(r)
+            d["created_at"] = d["timestamp"]
+            result.append(d)
+        return result
+    finally:
+        connection.close()
+
+
+def get_user_rag_distribution(user_id: int, days: int = 7) -> Dict[str, Any]:
+    """Retrieve query type classification distribution and optimizer strategies."""
+    safe_days = max(1, min(int(days), 90))
+    since = (datetime.now(timezone.utc) - timedelta(days=safe_days)).isoformat()
+    connection = get_connection()
+    try:
+        # Query types breakdown
+        qt_rows = connection.execute(
+            """
+            SELECT query_type, COUNT(*) as count, AVG(grounding_score) as avg_grounding, AVG(total_ms) as avg_latency
+            FROM ai_request_metrics
+            WHERE user_id = ? AND timestamp >= ?
+            GROUP BY query_type
+            ORDER BY count DESC
+            """,
+            (user_id, since),
+        ).fetchall()
+
+        # Optimizer strategies breakdown
+        st_rows = connection.execute(
+            """
+            SELECT optimizer_strategy, COUNT(*) as count
+            FROM ai_request_metrics
+            WHERE user_id = ? AND timestamp >= ? AND optimizer_strategy IS NOT NULL
+            GROUP BY optimizer_strategy
+            ORDER BY count DESC
+            """,
+            (user_id, since),
+        ).fetchall()
+
+        # Grounding quality brackets
+        g_row = connection.execute(
+            """
+            SELECT
+                SUM(CASE WHEN grounding_score >= 0.8 THEN 1 ELSE 0 END) as high_grounding,
+                SUM(CASE WHEN grounding_score >= 0.5 AND grounding_score < 0.8 THEN 1 ELSE 0 END) as medium_grounding,
+                SUM(CASE WHEN grounding_score < 0.5 THEN 1 ELSE 0 END) as low_grounding
+            FROM ai_request_metrics
+            WHERE user_id = ? AND timestamp >= ? AND grounding_score IS NOT NULL
+            """,
+            (user_id, since),
+        ).fetchone()
+
+        query_types_dict = {r["query_type"]: r["count"] for r in qt_rows if r["query_type"]}
+        strategies_dict = {r["optimizer_strategy"]: r["count"] for r in st_rows if r["optimizer_strategy"]}
+
+        return {
+            "query_types": query_types_dict,
+            "strategies": strategies_dict,
+            "query_types_list": [dict(r) for r in qt_rows],
+            "optimizer_strategies": [dict(r) for r in st_rows],
+            "grounding_brackets": {
+                "high": int(g_row["high_grounding"] or 0),
+                "medium": int(g_row["medium_grounding"] or 0),
+                "low": int(g_row["low_grounding"] or 0),
+            },
+        }
+    finally:
+        connection.close()
+
+
+def get_user_model_stats(user_id: int, days: int = 7) -> List[Dict[str, Any]]:
+    """Retrieve model usage breakdown and cache effectiveness."""
+    safe_days = max(1, min(int(days), 90))
+    since = (datetime.now(timezone.utc) - timedelta(days=safe_days)).isoformat()
+    connection = get_connection()
+    try:
+        model_rows = connection.execute(
+            """
+            SELECT
+                model,
+                COUNT(*) as count,
+                AVG(total_ms) as avg_total_ms,
+                AVG(CASE WHEN streaming = 1 THEN ttft_ms ELSE NULL END) as avg_ttft_ms
+            FROM ai_request_metrics
+            WHERE user_id = ? AND timestamp >= ?
+            GROUP BY model
+            ORDER BY count DESC
+            """,
+            (user_id, since),
+        ).fetchall()
+
+        results = []
+        for r in model_rows:
+            d = dict(r)
+            d["request_count"] = d["count"]
+            results.append(d)
+        return results
+    finally:
+        connection.close()
+
+
+# ============================================================
+# User Feedback Functions
+# ============================================================
+
+ALLOWED_FEEDBACK_RATINGS = {"helpful", "unhelpful", "1", "-1", 1, -1}
+ALLOWED_FEEDBACK_REASONS = {
+    "accurate",
+    "fast",
+    "helpful",
+    "good_citations",
+    "hallucination",
+    "missing_info",
+    "slow",
+    "poor_citations",
+    "incorrect_facts",
+    "refused_answer",
+    "incorrect_answer",
+    "missing_information",
+    "poor_citation",
+    "irrelevant_sources",
+    "too_verbose",
+    "other",
+}
+
+def save_message_feedback(
+    user_id: int,
+    conversation_id: int,
+    rating: Any,
+    message_id: Optional[int] = None,
+    feedback_reason: Optional[str] = None,
+    reason: Optional[str] = None,
+    feedback_text: Optional[str] = None,
+    note: Optional[str] = None,
+    latency_perceived: Optional[str] = None,
+    request_id: Optional[str] = None,
+) -> Optional[int]:
+    """
+    Save or update user feedback for an assistant message with strict validation.
+    Returns integer feedback_id on success, or None on failure.
+    """
+    if rating not in ALLOWED_FEEDBACK_RATINGS:
+        return None
+
+    # Normalize rating representation
+    norm_rating = 1 if rating in (1, "1", "helpful") else -1
+
+    chosen_reason = feedback_reason or reason
+    if chosen_reason:
+        chosen_reason = str(chosen_reason).strip().lower()
+        if chosen_reason not in ALLOWED_FEEDBACK_REASONS:
+            return None
+    else:
+        chosen_reason = "accurate" if norm_rating == 1 else "other"
+
+    chosen_text = feedback_text or note
+    if chosen_text:
+        chosen_text = str(chosen_text).strip()[:1000]
+
+    now = datetime.now(timezone.utc).isoformat()
+    connection = get_connection()
+    try:
+        # Validate conversation belongs to authenticated user
+        conv = connection.execute(
+            "SELECT id FROM conversations WHERE id = ? AND user_id = ?",
+            (conversation_id, user_id),
+        ).fetchone()
+        if conv is None:
+            return None
+
+        # Resolve message_id if omitted (attach to latest assistant message in conversation)
+        if message_id is None:
+            last_msg = connection.execute(
+                "SELECT id FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1",
+                (conversation_id,),
+            ).fetchone()
+            if last_msg:
+                message_id = last_msg["id"]
+        else:
+            # Validate that the provided message_id actually belongs to this conversation
+            msg_check = connection.execute(
+                "SELECT id FROM messages WHERE id = ? AND conversation_id = ?",
+                (message_id, conversation_id),
+            ).fetchone()
+            if msg_check is None:
+                return None
+
+        # Check existing feedback
+        existing = None
+        if message_id is not None:
+            existing = connection.execute(
+                "SELECT id FROM message_feedback WHERE user_id = ? AND message_id = ?",
+                (user_id, message_id),
+            ).fetchone()
+
+        if existing:
+            connection.execute(
+                """
+                UPDATE message_feedback
+                SET rating = ?, feedback_reason = ?, feedback_text = ?, latency_perceived = ?, request_id = COALESCE(?, request_id), updated_at = ?
+                WHERE id = ?
+                """,
+                (norm_rating, chosen_reason, chosen_text, latency_perceived, request_id, now, existing["id"]),
+            )
+            feedback_id = existing["id"]
+        else:
+            cursor = connection.execute(
+                """
+                INSERT INTO message_feedback (user_id, conversation_id, message_id, request_id, rating, feedback_reason, feedback_text, latency_perceived, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, conversation_id, message_id, request_id, norm_rating, chosen_reason, chosen_text, latency_perceived, now, now),
+            )
+            feedback_id = cursor.lastrowid
+
+        connection.commit()
+        return feedback_id
+    except Exception as e:
+        print(f"[FEEDBACK ERROR]: {e}")
+        return None
+    finally:
+        connection.close()
+
+
+def get_conversation_feedback(arg1: int, arg2: int) -> List[Dict[str, Any]]:
+    """Retrieve all feedback submitted for a conversation."""
+    connection = get_connection()
+    try:
+        # Determine which parameter is conversation_id and which is user_id
+        # Check if conversation exists for arg1 as conv_id and arg2 as user_id
+        c1 = connection.execute("SELECT id, user_id FROM conversations WHERE id = ? AND user_id = ?", (arg1, arg2)).fetchone()
+        if c1:
+            conv_id, u_id = arg1, arg2
+        else:
+            c2 = connection.execute("SELECT id, user_id FROM conversations WHERE id = ? AND user_id = ?", (arg2, arg1)).fetchone()
+            if c2:
+                conv_id, u_id = arg2, arg1
+            else:
+                return []
+
+        rows = connection.execute(
+            """
+            SELECT id, user_id, conversation_id, message_id, request_id, rating, feedback_reason, feedback_text, latency_perceived, created_at, updated_at
+            FROM message_feedback
+            WHERE user_id = ? AND conversation_id = ?
+            ORDER BY id ASC
+            """,
+            (u_id, conv_id),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["rating"] = int(d["rating"])
+            except (ValueError, TypeError):
+                d["rating"] = 1 if d["rating"] in ("helpful", "1") else -1
+            d["feedback_reason"] = d["feedback_reason"] or d.get("reason")
+            d["reason"] = d["feedback_reason"]
+            result.append(d)
+        return result
+    finally:
+        connection.close()
+
+
+# ============================================================
+# Response Cache Functions
+# ============================================================
+
+def compute_document_fingerprint(user_id: int, filenames: List[str]) -> str:
+    """
+    Computes a deterministic SHA-256 fingerprint for a list of document filenames.
+    Changes whenever file metadata (content hash, size, upload timestamp) changes.
+    """
+    if not filenames:
+        return "none"
+
+    clean_names = sorted(list(set(filenames)))
+    connection = get_connection()
+    try:
+        placeholders = ",".join("?" for _ in clean_names)
+        rows = connection.execute(
+            f"""
+            SELECT filename, file_size, created_at, content_hash
+            FROM documents
+            WHERE user_id = ? AND filename IN ({placeholders})
+            ORDER BY filename ASC
+            """,
+            [user_id] + clean_names,
+        ).fetchall()
+
+        parts = []
+        for r in rows:
+            h = r["content_hash"] if ("content_hash" in r.keys() and r["content_hash"]) else r["created_at"]
+            parts.append(f"{r['filename']}:{r['file_size']}:{h}")
+
+        raw = "|".join(parts) if parts else "missing_docs"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    finally:
+        connection.close()
+
+
+def compute_cache_key(
+    user_id: int,
+    normalized_query: str,
+    doc_fingerprint: str,
+    model: str,
+    prompt_version: str = "v1.1",
+    optimizer_version: str = "v1.1",
+) -> str:
+    """Computes a cryptographically safe cache key partitioned by user and document fingerprint."""
+    raw = f"{user_id}|{normalized_query.strip().lower()}|{doc_fingerprint}|{model}|{prompt_version}|{optimizer_version}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def get_cached_response(user_id: int, cache_key: str) -> Optional[Dict[str, Any]]:
+    """Retrieves an active cached response if available and not expired (pure read for sub-millisecond lookup)."""
+    now = datetime.now(timezone.utc).isoformat()
+    connection = get_connection()
+    try:
+        row = connection.execute(
+            """
+            SELECT id, answer, citations_json, grounding_json, model, created_at, expires_at
+            FROM ai_response_cache
+            WHERE user_id = ? AND cache_key = ? AND expires_at > ?
+            """,
+            (user_id, cache_key, now),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        citations = json.loads(row["citations_json"]) if row["citations_json"] else []
+        grounding = json.loads(row["grounding_json"]) if row["grounding_json"] else None
+
+        return {
+            "answer": row["answer"],
+            "citations": citations,
+            "grounding": grounding,
+            "model": row["model"],
+            "created_at": row["created_at"],
+            "cache_hit": True,
+        }
+    except Exception as e:
+        print(f"[CACHE WARNING] Failed to read from response cache: {e}")
+        return None
+
+
+def set_cached_response(
+    user_id: int,
+    cache_key: str,
+    normalized_query: str,
+    doc_fingerprint: str,
+    model: str,
+    answer: str,
+    citations: Optional[List[Any]] = None,
+    grounding: Optional[Dict[str, Any]] = None,
+    conversation_id: Optional[int] = None,
+    prompt_version: str = "v1.1",
+    optimizer_version: str = "v1.1",
+    ttl_seconds: int = 86400,
+) -> bool:
+    """Stores an AI response in the response cache with TTL, automatically cleaning up expired entries."""
+    try:
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        expires_at = (now_dt + timedelta(seconds=ttl_seconds)).isoformat()
+        citations_json = json.dumps(citations or [])
+        grounding_json = json.dumps(grounding or {})
+
+        connection = get_connection()
+        try:
+            # Purge expired cache entries opportunistically to prevent indefinite table growth
+            connection.execute(
+                "DELETE FROM ai_response_cache WHERE expires_at <= ?",
+                (now,),
+            )
+
+            connection.execute(
+                """
+                INSERT INTO ai_response_cache (
+                    cache_key, user_id, conversation_id, normalized_query,
+                    document_fingerprint, model, prompt_version, optimizer_version,
+                    answer, citations_json, grounding_json, created_at, expires_at,
+                    hit_count, last_accessed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    answer = excluded.answer,
+                    citations_json = excluded.citations_json,
+                    grounding_json = excluded.grounding_json,
+                    expires_at = excluded.expires_at,
+                    last_accessed_at = excluded.last_accessed_at
+                """,
+                (
+                    cache_key, user_id, conversation_id, normalized_query,
+                    doc_fingerprint, model, prompt_version, optimizer_version,
+                    answer, citations_json, grounding_json, now, expires_at, now
+                ),
+            )
+            connection.commit()
+            return True
+        except Exception:
+            raise
+    except Exception as e:
+        print(f"[CACHE WARNING] Failed to write to response cache: {e}")
+        return False
+
+
+def invalidate_document_cache(user_id: int, filename: str) -> int:
+    """Invalidates all cached responses for a user when a document is modified or deleted."""
+    connection = get_connection()
+    try:
+        cursor = connection.execute(
+            "DELETE FROM ai_response_cache WHERE user_id = ?",
+            (user_id,),
+        )
+        connection.commit()
+        return cursor.rowcount
+    finally:
+        connection.close()
+
+
+def clear_user_response_cache(user_id: int) -> int:
+    """Clears all response cache entries for a user."""
+    connection = get_connection()
+    try:
+        cursor = connection.execute(
+            "DELETE FROM ai_response_cache WHERE user_id = ?",
+            (user_id,),
+        )
+        connection.commit()
+        return cursor.rowcount
+    finally:
+        connection.close()
+
+
+# ============================================================
 # Initialize Database on Module Import
 # ============================================================
 
