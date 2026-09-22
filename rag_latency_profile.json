@@ -1,0 +1,1152 @@
+{
+  "timestamp": "2026-09-21T16:34:47Z",
+  "stage_averages": {
+    "auth_ms": {
+      "avg_ms": 1.9,
+      "median_ms": 0.58,
+      "percent_of_total": 0.01
+    },
+    "query_classification_ms": {
+      "avg_ms": 0.16,
+      "median_ms": 0.1,
+      "percent_of_total": 0.0
+    },
+    "query_expansion_ms": {
+      "avg_ms": 0.14,
+      "median_ms": 0.05,
+      "percent_of_total": 0.0
+    },
+    "optimizer_ms": {
+      "avg_ms": 0.18,
+      "median_ms": 0.12,
+      "percent_of_total": 0.0
+    },
+    "chroma_semantic_ms": {
+      "avg_ms": 72.12,
+      "median_ms": 37.52,
+      "percent_of_total": 0.49
+    },
+    "bm25_retrieval_ms": {
+      "avg_ms": 1.31,
+      "median_ms": 0.13,
+      "percent_of_total": 0.01
+    },
+    "hybrid_fusion_ms": {
+      "avg_ms": 0.05,
+      "median_ms": 0.03,
+      "percent_of_total": 0.0
+    },
+    "candidate_dedup_ms": {
+      "avg_ms": 0.01,
+      "median_ms": 0.01,
+      "percent_of_total": 0.0
+    },
+    "window_expansion_ms": {
+      "avg_ms": 0.09,
+      "median_ms": 0.13,
+      "percent_of_total": 0.0
+    },
+    "cross_encoder_ms": {
+      "avg_ms": 1124.08,
+      "median_ms": 336.63,
+      "percent_of_total": 7.58
+    },
+    "compression_ms": {
+      "avg_ms": 0.25,
+      "median_ms": 0.05,
+      "percent_of_total": 0.0
+    },
+    "total_retrieval_ms": {
+      "avg_ms": 1225.33,
+      "median_ms": 368.82,
+      "percent_of_total": 8.26
+    },
+    "prompt_construction_ms": {
+      "avg_ms": 0.01,
+      "median_ms": 0.01,
+      "percent_of_total": 0.0
+    },
+    "gemini_ttft_ms": {
+      "avg_ms": 13390.28,
+      "median_ms": 8828.54,
+      "percent_of_total": 90.24
+    },
+    "gemini_generation_ms": {
+      "avg_ms": 13524.2,
+      "median_ms": 9027.19,
+      "percent_of_total": 91.15
+    },
+    "citation_extraction_ms": {
+      "avg_ms": 0.31,
+      "median_ms": 0.29,
+      "percent_of_total": 0.0
+    },
+    "citation_validation_ms": {
+      "avg_ms": 0.07,
+      "median_ms": 0.06,
+      "percent_of_total": 0.0
+    },
+    "grounding_eval_ms": {
+      "avg_ms": 0.94,
+      "median_ms": 0.24,
+      "percent_of_total": 0.01
+    },
+    "privacy_guard_ms": {
+      "avg_ms": 0.6,
+      "median_ms": 0.44,
+      "percent_of_total": 0.0
+    },
+    "persistence_ms": {
+      "avg_ms": 83.7,
+      "median_ms": 77.05,
+      "percent_of_total": 0.56
+    },
+    "total_request_ms": {
+      "avg_ms": 14837.81,
+      "median_ms": 9927.34,
+      "percent_of_total": 100.0
+    }
+  },
+  "cases": [
+    {
+      "case_id": "A",
+      "name": "Gas vs. Ice Giants",
+      "question": "What is the difference between gas giants and ice giants?",
+      "filenames": [
+        "ss-high (1).pdf"
+      ],
+      "timings": {
+        "auth_ms": {
+          "min": 0.7,
+          "max": 27.13,
+          "avg": 9.67,
+          "median": 1.18
+        },
+        "query_classification_ms": {
+          "min": 0.02,
+          "max": 0.04,
+          "avg": 0.03,
+          "median": 0.04
+        },
+        "query_expansion_ms": {
+          "min": 0.07,
+          "max": 0.41,
+          "avg": 0.19,
+          "median": 0.09
+        },
+        "optimizer_ms": {
+          "min": 0.03,
+          "max": 0.09,
+          "avg": 0.06,
+          "median": 0.07
+        },
+        "chroma_semantic_ms": {
+          "min": 69.11,
+          "max": 192.24,
+          "avg": 122.75,
+          "median": 106.91
+        },
+        "bm25_retrieval_ms": {
+          "min": 0.77,
+          "max": 12.26,
+          "avg": 4.63,
+          "median": 0.86
+        },
+        "hybrid_fusion_ms": {
+          "min": 0.1,
+          "max": 0.13,
+          "avg": 0.11,
+          "median": 0.11
+        },
+        "candidate_dedup_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "window_expansion_ms": {
+          "min": 0.12,
+          "max": 0.18,
+          "avg": 0.15,
+          "median": 0.15
+        },
+        "cross_encoder_ms": {
+          "min": 804.96,
+          "max": 17093.47,
+          "avg": 6290.97,
+          "median": 974.47
+        },
+        "compression_ms": {
+          "min": 0.02,
+          "max": 0.19,
+          "avg": 0.08,
+          "median": 0.04
+        },
+        "total_retrieval_ms": {
+          "min": 939.38,
+          "max": 17559.91,
+          "avg": 6530.23,
+          "median": 1091.4
+        },
+        "prompt_construction_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "gemini_ttft_ms": {
+          "min": 7433.28,
+          "max": 25613.58,
+          "avg": 16701.23,
+          "median": 17056.83
+        },
+        "gemini_generation_ms": {
+          "min": 7436.49,
+          "max": 25747.67,
+          "avg": 16838.37,
+          "median": 17330.94
+        },
+        "citation_extraction_ms": {
+          "min": 0.35,
+          "max": 0.58,
+          "avg": 0.43,
+          "median": 0.36
+        },
+        "citation_validation_ms": {
+          "min": 0.06,
+          "max": 0.47,
+          "avg": 0.2,
+          "median": 0.08
+        },
+        "grounding_eval_ms": {
+          "min": 1.3,
+          "max": 4.26,
+          "avg": 2.69,
+          "median": 2.49
+        },
+        "privacy_guard_ms": {
+          "min": 0.44,
+          "max": 5.62,
+          "avg": 2.18,
+          "median": 0.49
+        },
+        "persistence_ms": {
+          "min": 70.07,
+          "max": 99.05,
+          "avg": 86.56,
+          "median": 90.57
+        },
+        "total_request_ms": {
+          "min": 8481.0,
+          "max": 43437.51,
+          "avg": 23471.95,
+          "median": 18497.34
+        }
+      },
+      "sample_grounding": 1.0,
+      "sample_citations_count": 2
+    },
+    {
+      "case_id": "B",
+      "name": "Heliosphere Definition",
+      "question": "What is the heliosphere?",
+      "filenames": [
+        "ss-high (1).pdf"
+      ],
+      "timings": {
+        "auth_ms": {
+          "min": 0.4,
+          "max": 0.93,
+          "avg": 0.58,
+          "median": 0.42
+        },
+        "query_classification_ms": {
+          "min": 0.06,
+          "max": 1.41,
+          "avg": 0.52,
+          "median": 0.1
+        },
+        "query_expansion_ms": {
+          "min": 0.02,
+          "max": 0.09,
+          "avg": 0.05,
+          "median": 0.03
+        },
+        "optimizer_ms": {
+          "min": 0.07,
+          "max": 1.43,
+          "avg": 0.54,
+          "median": 0.12
+        },
+        "chroma_semantic_ms": {
+          "min": 18.3,
+          "max": 49.84,
+          "avg": 29.09,
+          "median": 19.13
+        },
+        "bm25_retrieval_ms": {
+          "min": 0.13,
+          "max": 0.17,
+          "avg": 0.14,
+          "median": 0.13
+        },
+        "hybrid_fusion_ms": {
+          "min": 0.03,
+          "max": 0.04,
+          "avg": 0.03,
+          "median": 0.03
+        },
+        "candidate_dedup_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "window_expansion_ms": {
+          "min": 0.13,
+          "max": 0.15,
+          "avg": 0.14,
+          "median": 0.14
+        },
+        "cross_encoder_ms": {
+          "min": 325.22,
+          "max": 353.59,
+          "avg": 338.48,
+          "median": 336.63
+        },
+        "compression_ms": {
+          "min": 0.61,
+          "max": 1.15,
+          "avg": 0.82,
+          "median": 0.69
+        },
+        "total_retrieval_ms": {
+          "min": 357.68,
+          "max": 429.75,
+          "avg": 385.42,
+          "median": 368.82
+        },
+        "prompt_construction_ms": {
+          "min": 0.0,
+          "max": 0.02,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "gemini_ttft_ms": {
+          "min": 1434.95,
+          "max": 5502.11,
+          "avg": 4008.99,
+          "median": 5089.9
+        },
+        "gemini_generation_ms": {
+          "min": 1508.21,
+          "max": 5555.67,
+          "avg": 4201.42,
+          "median": 5540.39
+        },
+        "citation_extraction_ms": {
+          "min": 0.28,
+          "max": 0.42,
+          "avg": 0.33,
+          "median": 0.29
+        },
+        "citation_validation_ms": {
+          "min": 0.05,
+          "max": 0.09,
+          "avg": 0.07,
+          "median": 0.06
+        },
+        "grounding_eval_ms": {
+          "min": 1.15,
+          "max": 1.4,
+          "avg": 1.25,
+          "median": 1.22
+        },
+        "privacy_guard_ms": {
+          "min": 0.26,
+          "max": 0.56,
+          "avg": 0.44,
+          "median": 0.51
+        },
+        "persistence_ms": {
+          "min": 66.62,
+          "max": 120.26,
+          "avg": 87.98,
+          "median": 77.05
+        },
+        "total_request_ms": {
+          "min": 2018.0,
+          "max": 6037.62,
+          "avg": 4678.27,
+          "median": 5979.19
+        }
+      },
+      "sample_grounding": 1.0,
+      "sample_citations_count": 2
+    },
+    {
+      "case_id": "C",
+      "name": "Exact Technical Table Schema",
+      "question": "What is the exact database table and schema used for tracking document processing status?",
+      "filenames": [
+        "architecture_spec.txt"
+      ],
+      "timings": {
+        "auth_ms": {
+          "min": 0.54,
+          "max": 1.07,
+          "avg": 0.75,
+          "median": 0.64
+        },
+        "query_classification_ms": {
+          "min": 0.1,
+          "max": 0.17,
+          "avg": 0.13,
+          "median": 0.12
+        },
+        "query_expansion_ms": {
+          "min": 0.03,
+          "max": 0.05,
+          "avg": 0.04,
+          "median": 0.03
+        },
+        "optimizer_ms": {
+          "min": 0.11,
+          "max": 0.19,
+          "avg": 0.15,
+          "median": 0.14
+        },
+        "chroma_semantic_ms": {
+          "min": 25.34,
+          "max": 42.47,
+          "avg": 35.0,
+          "median": 37.19
+        },
+        "bm25_retrieval_ms": {
+          "min": 0.05,
+          "max": 0.42,
+          "avg": 0.19,
+          "median": 0.1
+        },
+        "hybrid_fusion_ms": {
+          "min": 0.01,
+          "max": 0.02,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "candidate_dedup_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "window_expansion_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "cross_encoder_ms": {
+          "min": 20.76,
+          "max": 33.21,
+          "avg": 27.17,
+          "median": 27.54
+        },
+        "compression_ms": {
+          "min": 0.05,
+          "max": 0.07,
+          "avg": 0.06,
+          "median": 0.05
+        },
+        "total_retrieval_ms": {
+          "min": 51.43,
+          "max": 79.42,
+          "avg": 66.57,
+          "median": 68.87
+        },
+        "prompt_construction_ms": {
+          "min": 0.0,
+          "max": 0.0,
+          "avg": 0.0,
+          "median": 0.0
+        },
+        "gemini_ttft_ms": {
+          "min": 3643.31,
+          "max": 5295.45,
+          "avg": 4355.55,
+          "median": 4127.87
+        },
+        "gemini_generation_ms": {
+          "min": 3865.65,
+          "max": 5301.8,
+          "avg": 4453.66,
+          "median": 4193.53
+        },
+        "citation_extraction_ms": {
+          "min": 0.04,
+          "max": 0.07,
+          "avg": 0.06,
+          "median": 0.07
+        },
+        "citation_validation_ms": {
+          "min": 0.01,
+          "max": 0.03,
+          "avg": 0.02,
+          "median": 0.03
+        },
+        "grounding_eval_ms": {
+          "min": 0.01,
+          "max": 0.02,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "privacy_guard_ms": {
+          "min": 0.05,
+          "max": 0.11,
+          "avg": 0.09,
+          "median": 0.1
+        },
+        "persistence_ms": {
+          "min": 53.11,
+          "max": 85.24,
+          "avg": 70.27,
+          "median": 72.46
+        },
+        "total_request_ms": {
+          "min": 4004.02,
+          "max": 5435.29,
+          "avg": 4591.78,
+          "median": 4336.04
+        }
+      },
+      "sample_grounding": 1.0,
+      "sample_citations_count": 1
+    },
+    {
+      "case_id": "D",
+      "name": "Conceptual Zero-Trust",
+      "question": "Explain the zero-trust security architecture and pre-retrieval tenant isolation in NexusAI.",
+      "filenames": [
+        "architecture_spec.txt"
+      ],
+      "timings": {
+        "auth_ms": {
+          "min": 0.37,
+          "max": 0.6,
+          "avg": 0.48,
+          "median": 0.47
+        },
+        "query_classification_ms": {
+          "min": 0.11,
+          "max": 0.17,
+          "avg": 0.13,
+          "median": 0.12
+        },
+        "query_expansion_ms": {
+          "min": 0.04,
+          "max": 1.48,
+          "avg": 0.52,
+          "median": 0.04
+        },
+        "optimizer_ms": {
+          "min": 0.12,
+          "max": 0.18,
+          "avg": 0.14,
+          "median": 0.13
+        },
+        "chroma_semantic_ms": {
+          "min": 23.13,
+          "max": 53.54,
+          "avg": 38.06,
+          "median": 37.52
+        },
+        "bm25_retrieval_ms": {
+          "min": 0.06,
+          "max": 0.15,
+          "avg": 0.09,
+          "median": 0.06
+        },
+        "hybrid_fusion_ms": {
+          "min": 0.01,
+          "max": 0.02,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "candidate_dedup_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "window_expansion_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "cross_encoder_ms": {
+          "min": 21.88,
+          "max": 36.14,
+          "avg": 28.23,
+          "median": 26.66
+        },
+        "compression_ms": {
+          "min": 0.05,
+          "max": 0.08,
+          "avg": 0.07,
+          "median": 0.07
+        },
+        "total_retrieval_ms": {
+          "min": 48.29,
+          "max": 94.18,
+          "avg": 71.08,
+          "median": 70.77
+        },
+        "prompt_construction_ms": {
+          "min": 0.0,
+          "max": 0.0,
+          "avg": 0.0,
+          "median": 0.0
+        },
+        "gemini_ttft_ms": {
+          "min": 7348.21,
+          "max": 11884.08,
+          "avg": 9209.57,
+          "median": 8396.42
+        },
+        "gemini_generation_ms": {
+          "min": 7389.68,
+          "max": 11959.92,
+          "avg": 9249.07,
+          "median": 8397.61
+        },
+        "citation_extraction_ms": {
+          "min": 0.04,
+          "max": 0.06,
+          "avg": 0.04,
+          "median": 0.04
+        },
+        "citation_validation_ms": {
+          "min": 0.01,
+          "max": 0.03,
+          "avg": 0.02,
+          "median": 0.02
+        },
+        "grounding_eval_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "privacy_guard_ms": {
+          "min": 0.04,
+          "max": 0.11,
+          "avg": 0.07,
+          "median": 0.05
+        },
+        "persistence_ms": {
+          "min": 69.3,
+          "max": 78.35,
+          "avg": 73.47,
+          "median": 72.77
+        },
+        "total_request_ms": {
+          "min": 7534.08,
+          "max": 12124.34,
+          "avg": 9394.59,
+          "median": 8525.35
+        }
+      },
+      "sample_grounding": 1.0,
+      "sample_citations_count": 1
+    },
+    {
+      "case_id": "E",
+      "name": "Planetary Composition Comparison",
+      "question": "What is the difference between gas giants and ice giants according to planetary composition?",
+      "filenames": [
+        "ss-high (1).pdf"
+      ],
+      "timings": {
+        "auth_ms": {
+          "min": 0.35,
+          "max": 0.47,
+          "avg": 0.42,
+          "median": 0.45
+        },
+        "query_classification_ms": {
+          "min": 0.01,
+          "max": 0.03,
+          "avg": 0.02,
+          "median": 0.02
+        },
+        "query_expansion_ms": {
+          "min": 0.03,
+          "max": 0.06,
+          "avg": 0.05,
+          "median": 0.05
+        },
+        "optimizer_ms": {
+          "min": 0.02,
+          "max": 0.04,
+          "avg": 0.03,
+          "median": 0.03
+        },
+        "chroma_semantic_ms": {
+          "min": 63.34,
+          "max": 103.0,
+          "avg": 82.68,
+          "median": 81.69
+        },
+        "bm25_retrieval_ms": {
+          "min": 1.15,
+          "max": 5.3,
+          "avg": 2.58,
+          "median": 1.29
+        },
+        "hybrid_fusion_ms": {
+          "min": 0.11,
+          "max": 0.14,
+          "avg": 0.12,
+          "median": 0.12
+        },
+        "candidate_dedup_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "window_expansion_ms": {
+          "min": 0.15,
+          "max": 0.16,
+          "avg": 0.16,
+          "median": 0.16
+        },
+        "cross_encoder_ms": {
+          "min": 732.68,
+          "max": 760.3,
+          "avg": 749.21,
+          "median": 754.65
+        },
+        "compression_ms": {
+          "min": 0.03,
+          "max": 0.03,
+          "avg": 0.03,
+          "median": 0.03
+        },
+        "total_retrieval_ms": {
+          "min": 834.1,
+          "max": 888.1,
+          "avg": 852.36,
+          "median": 834.88
+        },
+        "prompt_construction_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "gemini_ttft_ms": {
+          "min": 6964.99,
+          "max": 12246.17,
+          "avg": 9346.57,
+          "median": 8828.54
+        },
+        "gemini_generation_ms": {
+          "min": 7072.57,
+          "max": 12320.08,
+          "avg": 9473.28,
+          "median": 9027.19
+        },
+        "citation_extraction_ms": {
+          "min": 0.44,
+          "max": 0.56,
+          "avg": 0.48,
+          "median": 0.44
+        },
+        "citation_validation_ms": {
+          "min": 0.05,
+          "max": 0.06,
+          "avg": 0.06,
+          "median": 0.06
+        },
+        "grounding_eval_ms": {
+          "min": 1.76,
+          "max": 2.93,
+          "avg": 2.25,
+          "median": 2.05
+        },
+        "privacy_guard_ms": {
+          "min": 0.26,
+          "max": 0.8,
+          "avg": 0.46,
+          "median": 0.32
+        },
+        "persistence_ms": {
+          "min": 62.13,
+          "max": 68.21,
+          "avg": 66.03,
+          "median": 67.74
+        },
+        "total_request_ms": {
+          "min": 7981.23,
+          "max": 13280.48,
+          "avg": 10396.35,
+          "median": 9927.34
+        }
+      },
+      "sample_grounding": 1.0,
+      "sample_citations_count": 1
+    },
+    {
+      "case_id": "F",
+      "name": "Multi-Document Architecture & Benchmark",
+      "question": "Compare the storage architecture in enterprise_storage.txt with the compute spec in benchmark_report.txt.",
+      "filenames": [
+        "enterprise_storage.txt",
+        "benchmark_report.txt"
+      ],
+      "timings": {
+        "auth_ms": {
+          "min": 0.59,
+          "max": 0.94,
+          "avg": 0.81,
+          "median": 0.91
+        },
+        "query_classification_ms": {
+          "min": 0.04,
+          "max": 0.09,
+          "avg": 0.06,
+          "median": 0.05
+        },
+        "query_expansion_ms": {
+          "min": 0.07,
+          "max": 0.11,
+          "avg": 0.09,
+          "median": 0.08
+        },
+        "optimizer_ms": {
+          "min": 0.06,
+          "max": 0.1,
+          "avg": 0.08,
+          "median": 0.08
+        },
+        "chroma_semantic_ms": {
+          "min": 121.34,
+          "max": 189.69,
+          "avg": 157.75,
+          "median": 162.23
+        },
+        "bm25_retrieval_ms": {
+          "min": 0.13,
+          "max": 0.9,
+          "avg": 0.39,
+          "median": 0.13
+        },
+        "hybrid_fusion_ms": {
+          "min": 0.02,
+          "max": 0.02,
+          "avg": 0.02,
+          "median": 0.02
+        },
+        "candidate_dedup_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "window_expansion_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "cross_encoder_ms": {
+          "min": 36.04,
+          "max": 40.94,
+          "avg": 37.71,
+          "median": 36.16
+        },
+        "compression_ms": {
+          "min": 0.02,
+          "max": 0.02,
+          "avg": 0.02,
+          "median": 0.02
+        },
+        "total_retrieval_ms": {
+          "min": 165.05,
+          "max": 231.69,
+          "avg": 202.5,
+          "median": 210.77
+        },
+        "prompt_construction_ms": {
+          "min": 0.0,
+          "max": 0.0,
+          "avg": 0.0,
+          "median": 0.0
+        },
+        "gemini_ttft_ms": {
+          "min": 24383.54,
+          "max": 27033.48,
+          "avg": 25371.89,
+          "median": 24698.66
+        },
+        "gemini_generation_ms": {
+          "min": 24703.56,
+          "max": 27289.33,
+          "avg": 25651.43,
+          "median": 24961.42
+        },
+        "citation_extraction_ms": {
+          "min": 0.07,
+          "max": 0.11,
+          "avg": 0.09,
+          "median": 0.08
+        },
+        "citation_validation_ms": {
+          "min": 0.05,
+          "max": 0.08,
+          "avg": 0.07,
+          "median": 0.06
+        },
+        "grounding_eval_ms": {
+          "min": 0.22,
+          "max": 0.53,
+          "avg": 0.33,
+          "median": 0.24
+        },
+        "privacy_guard_ms": {
+          "min": 0.32,
+          "max": 0.86,
+          "avg": 0.54,
+          "median": 0.44
+        },
+        "persistence_ms": {
+          "min": 81.65,
+          "max": 131.68,
+          "avg": 101.33,
+          "median": 90.66
+        },
+        "total_request_ms": {
+          "min": 25003.2,
+          "max": 27592.32,
+          "avg": 25957.44,
+          "median": 25276.8
+        }
+      },
+      "sample_grounding": 0.75,
+      "sample_citations_count": 2
+    },
+    {
+      "case_id": "G",
+      "name": "Deliberately Unsupported Question",
+      "question": "What is the secret quantum core warp propulsion frequency of the Voyager spacecraft?",
+      "filenames": [
+        "ss-high (1).pdf"
+      ],
+      "timings": {
+        "auth_ms": {
+          "min": 0.47,
+          "max": 0.76,
+          "avg": 0.6,
+          "median": 0.58
+        },
+        "query_classification_ms": {
+          "min": 0.13,
+          "max": 0.36,
+          "avg": 0.22,
+          "median": 0.18
+        },
+        "query_expansion_ms": {
+          "min": 0.03,
+          "max": 0.07,
+          "avg": 0.05,
+          "median": 0.05
+        },
+        "optimizer_ms": {
+          "min": 0.15,
+          "max": 0.37,
+          "avg": 0.24,
+          "median": 0.21
+        },
+        "chroma_semantic_ms": {
+          "min": 23.9,
+          "max": 63.77,
+          "avg": 39.54,
+          "median": 30.95
+        },
+        "bm25_retrieval_ms": {
+          "min": 0.35,
+          "max": 2.61,
+          "avg": 1.17,
+          "median": 0.54
+        },
+        "hybrid_fusion_ms": {
+          "min": 0.04,
+          "max": 0.06,
+          "avg": 0.05,
+          "median": 0.05
+        },
+        "candidate_dedup_ms": {
+          "min": 0.01,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "window_expansion_ms": {
+          "min": 0.12,
+          "max": 0.13,
+          "avg": 0.13,
+          "median": 0.13
+        },
+        "cross_encoder_ms": {
+          "min": 384.51,
+          "max": 405.53,
+          "avg": 396.76,
+          "median": 400.25
+        },
+        "compression_ms": {
+          "min": 0.59,
+          "max": 0.76,
+          "avg": 0.67,
+          "median": 0.66
+        },
+        "total_retrieval_ms": {
+          "min": 450.04,
+          "max": 495.21,
+          "avg": 469.12,
+          "median": 462.11
+        },
+        "prompt_construction_ms": {
+          "min": 0.0,
+          "max": 0.01,
+          "avg": 0.01,
+          "median": 0.01
+        },
+        "gemini_ttft_ms": {
+          "min": 22591.99,
+          "max": 27948.97,
+          "avg": 24738.14,
+          "median": 23673.45
+        },
+        "gemini_generation_ms": {
+          "min": 22710.37,
+          "max": 27952.02,
+          "avg": 24802.16,
+          "median": 23744.1
+        },
+        "citation_extraction_ms": {
+          "min": 0.39,
+          "max": 0.93,
+          "avg": 0.71,
+          "median": 0.79
+        },
+        "citation_validation_ms": {
+          "min": 0.02,
+          "max": 0.05,
+          "avg": 0.04,
+          "median": 0.05
+        },
+        "grounding_eval_ms": {
+          "min": 0.01,
+          "max": 0.02,
+          "avg": 0.02,
+          "median": 0.02
+        },
+        "privacy_guard_ms": {
+          "min": 0.14,
+          "max": 0.56,
+          "avg": 0.39,
+          "median": 0.47
+        },
+        "persistence_ms": {
+          "min": 69.73,
+          "max": 125.98,
+          "avg": 100.29,
+          "median": 105.15
+        },
+        "total_request_ms": {
+          "min": 23313.44,
+          "max": 28543.21,
+          "avg": 25374.31,
+          "median": 24266.26
+        }
+      },
+      "sample_grounding": 1.0,
+      "sample_citations_count": 6
+    }
+  ],
+  "streaming_comparisons": [
+    {
+      "case_id": "A",
+      "name": "Gas vs. Ice Giants",
+      "comparison": {
+        "non_streaming_total_ms": 11582.88,
+        "streaming_ttft_ms": 10368.81,
+        "streaming_total_ms": 11391.67,
+        "perceived_latency_gain_ms": 1214.08
+      }
+    },
+    {
+      "case_id": "B",
+      "name": "Heliosphere Definition",
+      "comparison": {
+        "non_streaming_total_ms": 8117.02,
+        "streaming_ttft_ms": 5578.52,
+        "streaming_total_ms": 5815.17,
+        "perceived_latency_gain_ms": 2538.5
+      }
+    },
+    {
+      "case_id": "C",
+      "name": "Exact Technical Table Schema",
+      "comparison": {
+        "non_streaming_total_ms": 1267.03,
+        "streaming_ttft_ms": 10785.91,
+        "streaming_total_ms": 10787.26,
+        "perceived_latency_gain_ms": -9518.89
+      }
+    },
+    {
+      "case_id": "D",
+      "name": "Conceptual Zero-Trust",
+      "comparison": {
+        "non_streaming_total_ms": 8425.01,
+        "streaming_ttft_ms": 12063.71,
+        "streaming_total_ms": 12285.43,
+        "perceived_latency_gain_ms": -3638.7
+      }
+    },
+    {
+      "case_id": "E",
+      "name": "Planetary Composition Comparison",
+      "comparison": {
+        "non_streaming_total_ms": 19107.3,
+        "streaming_ttft_ms": 24443.19,
+        "streaming_total_ms": 24863.73,
+        "perceived_latency_gain_ms": -5335.89
+      }
+    },
+    {
+      "case_id": "F",
+      "name": "Multi-Document Architecture & Benchmark",
+      "comparison": {
+        "non_streaming_total_ms": 27987.13,
+        "streaming_ttft_ms": 3817.61,
+        "streaming_total_ms": 4237.72,
+        "perceived_latency_gain_ms": 24169.52
+      }
+    },
+    {
+      "case_id": "G",
+      "name": "Deliberately Unsupported Question",
+      "comparison": {
+        "non_streaming_total_ms": 19579.87,
+        "streaming_ttft_ms": 19629.72,
+        "streaming_total_ms": 19815.09,
+        "perceived_latency_gain_ms": -49.85
+      }
+    }
+  ],
+  "total_pipeline_avg_ms": 14837.81
+}

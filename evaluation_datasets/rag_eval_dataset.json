@@ -1,0 +1,107 @@
+{
+  "version": "1.0.0",
+  "name": "NexusAI Deterministic RAG Evaluation Benchmark",
+  "description": "Comprehensive evaluation dataset across 10 query categories with ground-truth concepts, documents, and pages.",
+  "cases": [
+    {
+      "id": "eval_simple_factual_001",
+      "category": "simple_factual",
+      "question": "What is the primary mission objective of NexusAI and its maximum upload capacity?",
+      "expected_sources": ["architecture_spec.txt"],
+      "expected_pages": [1],
+      "expected_concepts": ["100 MB", "NexusAI", "mission objective", "secure document intelligence"],
+      "answerable": true,
+      "reference_answer": "NexusAI is designed for secure enterprise document intelligence with a maximum file upload capacity of 100 MB."
+    },
+    {
+      "id": "eval_exact_technical_002",
+      "category": "exact_technical",
+      "question": "What is the exact database table and schema used for tracking document processing status?",
+      "expected_sources": ["architecture_spec.txt"],
+      "expected_pages": [1],
+      "expected_concepts": ["documents table", "processing_status", "vector_status", "extraction_method"],
+      "answerable": true,
+      "reference_answer": "The SQLite documents table stores metadata including processing_status, vector_status, and extraction_method."
+    },
+    {
+      "id": "eval_conceptual_003",
+      "category": "conceptual",
+      "question": "Explain the zero-trust security architecture and pre-retrieval tenant isolation in NexusAI.",
+      "expected_sources": ["architecture_spec.txt"],
+      "expected_pages": [1],
+      "expected_concepts": ["pre-retrieval", "user isolation", "zero trust", "tenant isolation", "authorization"],
+      "answerable": true,
+      "reference_answer": "NexusAI enforces zero-trust security via pre-retrieval ownership validation and metadata filtering before executing vector search."
+    },
+    {
+      "id": "eval_procedural_004",
+      "category": "procedural",
+      "question": "What are the sequential steps executed during hybrid RRF retrieval and reranking?",
+      "expected_sources": ["architecture_spec.txt"],
+      "expected_pages": [1],
+      "expected_concepts": ["BM25", "Chroma semantic search", "fusion scoring", "Cross-Encoder", "context compression"],
+      "answerable": true,
+      "reference_answer": "Hybrid retrieval runs BM25 and Chroma vector search in parallel, computes weighted fusion scores, applies Cross-Encoder reranking, and performs contextual compression."
+    },
+    {
+      "id": "eval_comparison_005",
+      "category": "comparison",
+      "question": "What is the difference between gas giants and ice giants according to planetary composition?",
+      "expected_sources": ["ss-high (1).pdf"],
+      "expected_pages": [4, 32],
+      "expected_concepts": ["gas giants", "ice giants", "Jupiter", "Saturn", "Uranus", "Neptune", "hydrogen", "helium", "methane", "water", "ammonia"],
+      "answerable": true,
+      "reference_answer": "Gas giants (Jupiter and Saturn) are primarily composed of hydrogen and helium, whereas ice giants (Uranus and Neptune) contain significant proportions of heavier icy elements like water, ammonia, and methane."
+    },
+    {
+      "id": "eval_multi_document_006",
+      "category": "multi_document",
+      "question": "Compare the storage architecture in enterprise_storage.txt with the compute spec in benchmark_report.txt.",
+      "expected_sources": ["enterprise_storage.txt", "benchmark_report.txt"],
+      "expected_pages": [1],
+      "expected_concepts": ["storage architecture", "compute nodes", "throughput", "GPU", "NVMe"],
+      "answerable": true,
+      "reference_answer": "Enterprise storage provides high-throughput NVMe tiers while the benchmark compute architecture leverages distributed GPU cluster nodes."
+    },
+    {
+      "id": "eval_complex_analytical_007",
+      "category": "complex_analytical",
+      "question": "Analyze the performance trade-offs between initial candidate retrieval pool size and Cross-Encoder joint-attention latency.",
+      "expected_sources": ["architecture_spec.txt"],
+      "expected_pages": [1],
+      "expected_concepts": ["top-k", "candidate pool", "Cross-Encoder", "latency", "relevance", "recall"],
+      "answerable": true,
+      "reference_answer": "Increasing initial top-k expands candidate recall but increases Cross-Encoder quadratic attention computational latency."
+    },
+    {
+      "id": "eval_ambiguous_008",
+      "category": "ambiguous_insufficient",
+      "question": "What is the secret subterranean warp engine propulsion frequency of the enterprise flagship?",
+      "expected_sources": ["architecture_spec.txt"],
+      "expected_pages": [],
+      "expected_concepts": [],
+      "answerable": false,
+      "reference_answer": "I couldn't find enough supporting information in the selected document(s) to answer this reliably."
+    },
+    {
+      "id": "eval_ocr_derived_009",
+      "category": "ocr_derived",
+      "question": "What information was extracted via OCR from the scanned document and what was its extraction method?",
+      "expected_sources": ["scanned_demo.pdf"],
+      "expected_pages": [1],
+      "expected_concepts": ["ocr", "extraction method", "text extraction", "scanned"],
+      "answerable": true,
+      "reference_answer": "Scanned document pages are processed using Local OCR when native text quality is insufficient."
+    },
+    {
+      "id": "eval_page_specific_010",
+      "category": "page_specific",
+      "question": "What is the heliosphere and how is it created according to page 4 of the solar system guide?",
+      "expected_sources": ["ss-high (1).pdf"],
+      "expected_pages": [4],
+      "expected_concepts": ["heliosphere", "solar wind", "Sun", "bubble", "interstellar space"],
+      "answerable": true,
+      "reference_answer": "The heliosphere is a giant bubble formed by the solar wind blowing outward from the Sun into interstellar space."
+    }
+  ]
+}

@@ -18,10 +18,13 @@ import {
   FaExclamationTriangle,
   FaEdit,
   FaBars,
+  FaShieldAlt,
+  FaExternalLinkAlt,
 } from "react-icons/fa";
 import MarkdownRenderer from "./MarkdownRenderer";
 
 const MODE_STORAGE_KEY = "nexusai_processing_mode";
+const HISTORY_SIDEBAR_STORAGE_KEY = "nexusai_chat_history_open";
 const MAX_UPLOAD_SIZE_MB = 100;
 const MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024;
 
@@ -34,7 +37,32 @@ function ChatWindow() {
   const [activeConversationTitle, setActiveConversationTitle] = useState("");
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [conversationLoadError, setConversationLoadError] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem(HISTORY_SIDEBAR_STORAGE_KEY);
+      if (saved !== null) {
+        return saved === "true";
+      }
+    } catch {
+      // ignore
+    }
+    if (typeof window !== "undefined") {
+      return window.innerWidth >= 1024;
+    }
+    return true;
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(HISTORY_SIDEBAR_STORAGE_KEY, String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   // Rename modal / inline state
   const [editingConvId, setEditingConvId] = useState(null);
@@ -89,6 +117,7 @@ function ChatWindow() {
   const [copiedMessageIndex, setCopiedMessageIndex] = useState(null);
   const [copyToast, setCopyToast] = useState({ show: false, message: "", isError: false });
   const copyToastTimerRef = useRef(null);
+  const [activeEvidence, setActiveEvidence] = useState(null);
 
 
 
@@ -186,6 +215,8 @@ function ChatWindow() {
         text: m.content,
         timestamp: m.created_at,
         sources: conv.documents || [],
+        citations: m.citations || [],
+        grounding: m.grounding || null,
         queryUsed: m.role === "user" ? m.content : "",
       }));
       setMessages(formatted);
@@ -197,6 +228,11 @@ function ChatWindow() {
 
       userScrolledUpRef.current = false;
       setShowScrollBottom(false);
+
+      // Auto-collapse sidebar on mobile/narrow screens when selecting a conversation
+      if (typeof window !== "undefined" && window.innerWidth <= 900) {
+        setSidebarOpen(false);
+      }
 
       setTimeout(() => {
         scrollToBottom("instant");
@@ -222,6 +258,11 @@ function ChatWindow() {
     setQuestion("");
     userScrolledUpRef.current = false;
     setShowScrollBottom(false);
+
+    // Auto-collapse sidebar on mobile/narrow screens
+    if (typeof window !== "undefined" && window.innerWidth <= 900) {
+      setSidebarOpen(false);
+    }
   };
 
   // ----------------------------------------------------
@@ -677,57 +718,180 @@ function ChatWindow() {
       return;
     }
 
-    // 2. CLOUD AI (Gemini)
+    // 2. CLOUD AI (Gemini Streaming)
     try {
-      const response = await api.post("/chat", requestBody, {
+      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+        method: "POST",
+        headers: getAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(requestBody),
         signal: abortController.signal,
       });
 
-      const data = response.data;
-      const answer = data.answer || "No response received.";
-      const sources = data.sources || (selectedDocuments.length > 0 ? selectedDocuments : []);
-
-      if (data.conversation_id) {
-        setActiveConversationId(data.conversation_id);
-        if (data.conversation_title) {
-          setActiveConversationTitle(data.conversation_title);
+      if (!response.ok) {
+        let errDetail = `Cloud AI request failed with status ${response.status}`;
+        try {
+          const errJson = await response.json();
+          if (errJson?.detail) errDetail = errJson.detail;
+        } catch {
+          // ignore json parse error
         }
+        throw new Error(errDetail);
       }
 
-      const finalAiMessages = [
+      const headerConvId = response.headers.get("X-Conversation-Id");
+      const headerConvTitle = response.headers.get("X-Conversation-Title");
+      if (headerConvId) {
+        const parsedId = parseInt(headerConvId, 10);
+        setActiveConversationId(parsedId);
+        if (headerConvTitle) setActiveConversationTitle(headerConvTitle);
+      }
+
+      if (!response.body) {
+        throw new Error("Streaming response is not supported by browser.");
+      }
+
+      const initialAiMessages = [
         ...updatedMessages,
         {
           type: "ai",
-          text: answer,
-          sources: sources,
+          text: "",
+          sources: selectedDocuments.length > 0 ? selectedDocuments : [],
           queryUsed: query,
           timestamp: new Date().toISOString(),
         },
       ];
-      setMessages(finalAiMessages);
+      setMessages(initialAiMessages);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let accumulated = "";
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const block of lines) {
+          if (!block.trim()) continue;
+          const eventMatch = block.match(/^event:\s*(\w+)/m);
+          const dataMatch = block.match(/^data:\s*(.+)$/m);
+
+          const eventType = eventMatch ? eventMatch[1] : "token";
+          const dataRaw = dataMatch ? dataMatch[1] : "";
+
+          if (eventType === "start") {
+            try {
+              const startData = JSON.parse(dataRaw);
+              if (startData.conversation_id) {
+                setActiveConversationId(startData.conversation_id);
+              }
+              if (startData.conversation_title) {
+                setActiveConversationTitle(startData.conversation_title);
+              }
+            } catch {
+              // ignore parse errors
+            }
+          } else if (eventType === "token") {
+            try {
+              const tokenData = JSON.parse(dataRaw);
+              if (tokenData.text) {
+                accumulated += tokenData.text;
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const lastIdx = copy.length - 1;
+                  if (copy[lastIdx] && copy[lastIdx].type === "ai") {
+                    copy[lastIdx] = { ...copy[lastIdx], text: accumulated };
+                  }
+                  return copy;
+                });
+              }
+            } catch {
+              accumulated += dataRaw;
+              setMessages((prev) => {
+                const copy = [...prev];
+                const lastIdx = copy.length - 1;
+                if (copy[lastIdx] && copy[lastIdx].type === "ai") {
+                  copy[lastIdx] = { ...copy[lastIdx], text: accumulated };
+                }
+                return copy;
+              });
+            }
+          } else if (eventType === "complete") {
+            try {
+              const completeData = JSON.parse(dataRaw);
+              if (completeData.final_text) {
+                accumulated = completeData.final_text;
+              }
+              setMessages((prev) => {
+                const copy = [...prev];
+                const lastIdx = copy.length - 1;
+                if (copy[lastIdx] && copy[lastIdx].type === "ai") {
+                  copy[lastIdx] = {
+                    ...copy[lastIdx],
+                    text: completeData.final_text || accumulated,
+                    citations: completeData.citations || copy[lastIdx].citations || [],
+                    grounding: completeData.grounding || copy[lastIdx].grounding || null,
+                  };
+                }
+                return copy;
+              });
+              if (completeData.conversation_id) {
+                setActiveConversationId(completeData.conversation_id);
+              }
+              if (completeData.conversation_title) {
+                setActiveConversationTitle(completeData.conversation_title);
+              }
+            } catch {
+              // ignore
+            }
+          } else if (eventType === "error") {
+            try {
+              const errData = JSON.parse(dataRaw);
+              throw new Error(errData.detail || "Error during streaming");
+            } catch {
+              throw new Error(dataRaw || "Error during streaming");
+            }
+          }
+        }
+      }
 
       // Refresh sidebar conversations
       fetchConversations();
     } catch (err) {
-      if (err.name === "CanceledError" || err.code === "ERR_CANCELED") {
+      if (err.name === "AbortError" || err.name === "CanceledError" || err.code === "ERR_CANCELED") {
         console.log("Cloud request was stopped by user.");
       } else {
         console.error("Chat request error:", err);
         const errorDetail =
-          err.response?.data?.detail ||
           err.message ||
           "Unable to complete chat request. Please check your connection.";
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            type: "ai",
-            text: errorDetail,
-            isError: true,
-            queryUsed: query,
-            timestamp: new Date().toISOString(),
-          },
-        ]);
+        setMessages((prev) => {
+          const copy = [...prev];
+          const lastIdx = copy.length - 1;
+          if (copy[lastIdx] && copy[lastIdx].type === "ai" && !copy[lastIdx].text) {
+            copy[lastIdx] = {
+              ...copy[lastIdx],
+              text: errorDetail,
+              isError: true,
+            };
+            return copy;
+          }
+          return [
+            ...prev,
+            {
+              type: "ai",
+              text: errorDetail,
+              isError: true,
+              queryUsed: query,
+              timestamp: new Date().toISOString(),
+            },
+          ];
+        });
       }
     } finally {
       setLoading(false);
@@ -836,6 +1000,7 @@ function ChatWindow() {
         -------------------------------------------------- */
         .nx-conv-sidebar {
           width: 270px;
+          min-width: 270px;
           flex-shrink: 0;
           height: 100%;
           min-height: 0;
@@ -843,17 +1008,32 @@ function ChatWindow() {
           border-right: 1px solid var(--nx-border, #e2e8f0);
           display: flex;
           flex-direction: column;
-          transition: transform 0.25s ease, width 0.25s ease;
+          transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                      min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                      opacity 0.18s ease,
+                      border-color 0.22s ease;
           overflow: hidden;
           z-index: 10;
+          position: relative;
+          white-space: nowrap;
+        }
+
+        .nx-conv-sidebar.collapsed {
+          width: 0 !important;
+          min-width: 0 !important;
+          border-right-width: 0 !important;
+          border-right-color: transparent !important;
+          opacity: 0;
+          pointer-events: none;
+          visibility: hidden;
         }
 
         .nx-conv-sidebar-header {
           padding: 16px 14px 12px;
           border-bottom: 1px solid var(--nx-border, #e2e8f0);
           display: flex;
-          flex-direction: column;
-          gap: 10px;
+          align-items: center;
+          gap: 8px;
         }
 
         .nx-new-chat-btn {
@@ -861,7 +1041,7 @@ function ChatWindow() {
           align-items: center;
           justify-content: center;
           gap: 8px;
-          width: 100%;
+          flex: 1;
           padding: 10px 14px;
           border-radius: 10px;
           border: 1px solid var(--nx-primary-border, #bfdbfe);
@@ -871,6 +1051,7 @@ function ChatWindow() {
           font-weight: 750;
           cursor: pointer;
           transition: all 0.15s ease;
+          white-space: nowrap;
         }
 
         .nx-new-chat-btn:hover {
@@ -878,6 +1059,70 @@ function ChatWindow() {
           color: #ffffff;
           border-color: var(--nx-primary, #2563eb);
           box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+        }
+
+        .nx-conv-collapse-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 38px;
+          border-radius: 9px;
+          border: 1px solid var(--nx-border, #cbd5e1);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text-secondary, #334155);
+          cursor: pointer;
+          transition: all 0.15s ease;
+          flex-shrink: 0;
+        }
+
+        .nx-conv-collapse-btn:hover {
+          color: var(--nx-text, #0f172a);
+          background: var(--nx-surface-3, #eef2f7);
+          border-color: var(--nx-border-strong, #94a3b8);
+        }
+
+        .nx-conv-collapse-btn svg {
+          display: block;
+          fill: currentColor;
+          font-size: 13px;
+        }
+
+        .nx-history-toggle-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          border-radius: 8px;
+          border: 1px solid var(--nx-border, #cbd5e1);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text-secondary, #334155);
+          cursor: pointer;
+          transition: all 0.15s ease;
+          flex-shrink: 0;
+        }
+
+        .nx-history-toggle-btn svg {
+          display: block;
+          fill: currentColor;
+          font-size: 14px;
+        }
+
+        .nx-history-toggle-btn:hover {
+          color: var(--nx-primary, #2563eb);
+          border-color: var(--nx-primary-border, #bfdbfe);
+          background: var(--nx-primary-soft, #eff6ff);
+        }
+
+        .nx-history-toggle-btn.active {
+          color: var(--nx-primary, #2563eb);
+          background: var(--nx-primary-soft, #eff6ff);
+          border-color: var(--nx-primary-border, #bfdbfe);
+        }
+
+        .nx-sidebar-backdrop {
+          display: none;
         }
 
         .nx-conv-list-header {
@@ -1167,6 +1412,285 @@ function ChatWindow() {
           background: #dcfce7;
           color: #16a34a;
           border-color: #86efac;
+        }
+
+        /* --------------------------------------------------
+           SOURCES & GROUNDING BADGE
+        -------------------------------------------------- */
+        .nx-ai-sources-section {
+          margin-top: 14px;
+          padding-top: 10px;
+          border-top: 1px solid var(--nx-border, #e2e8f0);
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .nx-ai-sources-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .nx-ai-sources-title {
+          font-size: 12px;
+          font-weight: 700;
+          color: var(--nx-text-muted, #64748b);
+          display: inline-flex;
+          align-items: center;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+
+        .nx-grounding-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 3px 8px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+        }
+
+        .nx-grounding-badge.high {
+          background: rgba(22, 163, 74, 0.12);
+          color: #16a34a;
+          border: 1px solid rgba(22, 163, 74, 0.25);
+        }
+
+        .nx-grounding-badge.medium {
+          background: rgba(217, 119, 6, 0.12);
+          color: #d97706;
+          border: 1px solid rgba(217, 119, 6, 0.25);
+        }
+
+        .nx-grounding-badge.low {
+          background: rgba(100, 116, 139, 0.12);
+          color: #64748b;
+          border: 1px solid rgba(100, 116, 139, 0.25);
+        }
+
+        .nx-ai-sources-list {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+
+        .nx-ai-source-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 4px 10px;
+          border-radius: 8px;
+          border: 1px solid var(--nx-border, #e2e8f0);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text, #0f172a);
+          font-size: 12px;
+          font-weight: 550;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          text-align: left;
+        }
+
+        .nx-ai-source-pill:hover {
+          border-color: var(--nx-primary, #2563eb);
+          background: var(--nx-primary-soft, #eff6ff);
+          color: var(--nx-primary, #2563eb);
+          transform: translateY(-1px);
+          box-shadow: 0 2px 6px rgba(37, 99, 235, 0.12);
+        }
+
+        .nx-source-id {
+          font-weight: 750;
+          color: var(--nx-primary, #2563eb);
+        }
+
+        .nx-source-name {
+          max-width: 180px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .nx-source-page {
+          color: var(--nx-text-muted, #64748b);
+          font-size: 11.5px;
+        }
+
+        .nx-source-score {
+          padding: 1px 5px;
+          border-radius: 4px;
+          background: var(--nx-surface-3, #eef2f7);
+          color: var(--nx-text-secondary, #334155);
+          font-size: 10.5px;
+          font-weight: 700;
+        }
+
+        /* --------------------------------------------------
+           EVIDENCE MODAL
+        -------------------------------------------------- */
+        .nx-evidence-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.6);
+          backdrop-filter: blur(4px);
+          z-index: 9999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          animation: nx-fade-in 0.15s ease;
+        }
+
+        .nx-evidence-modal-card {
+          width: 100%;
+          max-width: 640px;
+          background: var(--nx-surface, #ffffff);
+          border: 1px solid var(--nx-border, #e2e8f0);
+          border-radius: 16px;
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          max-height: 85vh;
+        }
+
+        .nx-evidence-modal-header {
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--nx-border, #e2e8f0);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: var(--nx-bg, #f8fafc);
+        }
+
+        .nx-evidence-badge {
+          display: inline-block;
+          padding: 3px 8px;
+          border-radius: 6px;
+          background: var(--nx-primary-soft, #eff6ff);
+          border: 1px solid var(--nx-primary-border, #bfdbfe);
+          color: var(--nx-primary, #2563eb);
+          font-size: 12px;
+          font-weight: 750;
+        }
+
+        .nx-evidence-title {
+          margin: 0;
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--nx-text, #0f172a);
+          max-width: 380px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .nx-evidence-close-btn {
+          width: 32px;
+          height: 32px;
+          display: grid;
+          place-items: center;
+          border-radius: 8px;
+          border: 1px solid var(--nx-border, #cbd5e1);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text-muted, #64748b);
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .nx-evidence-close-btn:hover {
+          color: var(--nx-text, #0f172a);
+          background: var(--nx-surface-3, #eef2f7);
+        }
+
+        .nx-evidence-modal-body {
+          padding: 20px;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .nx-evidence-meta-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          font-size: 13px;
+          color: var(--nx-text-secondary, #334155);
+        }
+
+        .nx-evidence-meta-item {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .nx-evidence-snippet-title {
+          font-size: 12px;
+          font-weight: 750;
+          color: var(--nx-text-muted, #64748b);
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+
+        .nx-evidence-snippet-box {
+          padding: 14px 16px;
+          border-radius: 10px;
+          background: var(--nx-bg, #f8fafc);
+          border: 1px solid var(--nx-border, #e2e8f0);
+          color: var(--nx-text, #0f172a);
+          font-size: 13.5px;
+          line-height: 1.6;
+          white-space: pre-wrap;
+          font-family: inherit;
+        }
+
+        .nx-evidence-modal-footer {
+          padding: 14px 20px;
+          border-top: 1px solid var(--nx-border, #e2e8f0);
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          background: var(--nx-bg, #f8fafc);
+        }
+
+        .nx-evidence-btn-secondary {
+          padding: 8px 16px;
+          border-radius: 8px;
+          border: 1px solid var(--nx-border, #cbd5e1);
+          background: var(--nx-surface, #ffffff);
+          color: var(--nx-text, #0f172a);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .nx-evidence-btn-secondary:hover {
+          background: var(--nx-surface-3, #eef2f7);
+        }
+
+        .nx-evidence-btn-primary {
+          display: inline-flex;
+          align-items: center;
+          padding: 8px 16px;
+          border-radius: 8px;
+          border: 1px solid var(--nx-primary, #2563eb);
+          background: var(--nx-primary, #2563eb);
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 650;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .nx-evidence-btn-primary:hover {
+          background: var(--nx-primary-hover, #1d4ed8);
         }
 
         /* --------------------------------------------------
@@ -1497,8 +2021,32 @@ function ChatWindow() {
             left: 0;
             top: 0;
             bottom: 0;
-            transform: translateX(${sidebarOpen ? "0" : "-100%"});
-            box-shadow: 4px 0 20px rgba(0,0,0,0.1);
+            width: 270px;
+            min-width: 270px;
+            transform: translateX(0);
+            box-shadow: 4px 0 24px rgba(15, 23, 42, 0.18);
+            transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease;
+            visibility: visible;
+            opacity: 1;
+            z-index: 50;
+          }
+
+          .nx-conv-sidebar.collapsed {
+            transform: translateX(-100%) !important;
+            width: 270px !important;
+            min-width: 270px !important;
+            opacity: 0;
+            visibility: hidden;
+          }
+
+          .nx-sidebar-backdrop {
+            display: block;
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(2px);
+            z-index: 40;
+            animation: nx-fade-in 0.18s ease;
           }
         }
 
@@ -1525,10 +2073,23 @@ function ChatWindow() {
         }
       `}</style>
 
+      {/* Mobile Backdrop Overlay */}
+      {sidebarOpen && (
+        <div
+          className="nx-sidebar-backdrop"
+          onClick={toggleSidebar}
+          aria-hidden="true"
+        />
+      )}
+
       {/* ========================================================
           1. CONVERSATIONS HISTORY SIDEBAR
       ======================================================== */}
-      <aside className="nx-conv-sidebar">
+      <aside
+        className={`nx-conv-sidebar ${!sidebarOpen ? "collapsed" : ""}`}
+        aria-label="Conversation History"
+        aria-hidden={!sidebarOpen}
+      >
         <div className="nx-conv-sidebar-header">
           <button
             type="button"
@@ -1537,7 +2098,16 @@ function ChatWindow() {
             aria-label="Start a new conversation"
           >
             <FaPlus size={12} />
-            <span>+ New Chat</span>
+            <span>New Chat</span>
+          </button>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label="Hide conversation history"
+            title="Hide conversation history"
+            className="nx-conv-collapse-btn"
+          >
+            <FaTimes size={13} />
           </button>
         </div>
 
@@ -1644,16 +2214,10 @@ function ChatWindow() {
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <button
               type="button"
-              onClick={() => setSidebarOpen((prev) => !prev)}
-              aria-label="Toggle conversations sidebar"
-              className="nx-conv-action-btn"
-              style={{
-                display: "grid",
-                placeItems: "center",
-                padding: "8px",
-                borderRadius: "8px",
-                border: "1px solid var(--nx-border, #e2e8f0)",
-              }}
+              onClick={toggleSidebar}
+              aria-label={sidebarOpen ? "Hide conversation history" : "Show conversation history"}
+              title={sidebarOpen ? "Hide conversation history" : "Show conversation history"}
+              className={`nx-history-toggle-btn ${sidebarOpen ? "active" : ""}`}
             >
               <FaBars size={14} />
             </button>
@@ -1977,6 +2541,56 @@ function ChatWindow() {
                     <div className="nx-ai-text-content">
                       <MarkdownRenderer content={msg.text} />
                     </div>
+
+                    {/* Sources & Citations Section */}
+                    {msg.citations && msg.citations.length > 0 && (
+                      <div className="nx-ai-sources-section">
+                        <div className="nx-ai-sources-header">
+                          <span className="nx-ai-sources-title">
+                            <FaBookOpen size={11} style={{ marginRight: "5px" }} /> Sources & Evidence ({msg.citations.length})
+                          </span>
+                          {msg.grounding && msg.grounding.grounding_score !== undefined && (
+                            <span
+                              className={`nx-grounding-badge ${
+                                msg.grounding.grounding_score >= 0.8
+                                  ? "high"
+                                  : msg.grounding.grounding_score >= 0.5
+                                  ? "medium"
+                                  : "low"
+                              }`}
+                              title={`Deterministic Evidence Grounding: ${Math.round(msg.grounding.grounding_score * 100)}% (${msg.grounding.supported_claims || 0}/${msg.grounding.total_claims || 0} claims supported)`}
+                            >
+                              <FaShieldAlt size={10} style={{ marginRight: "4px" }} />
+                              {msg.grounding.grounding_score >= 0.8
+                                ? `Grounded: ${Math.round(msg.grounding.grounding_score * 100)}%`
+                                : msg.grounding.grounding_score >= 0.5
+                                ? `Partially Grounded: ${Math.round(msg.grounding.grounding_score * 100)}%`
+                                : `Limited Evidence: ${Math.round(msg.grounding.grounding_score * 100)}%`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="nx-ai-sources-list">
+                          {msg.citations.map((cite) => (
+                            <button
+                              key={cite.id}
+                              type="button"
+                              onClick={() => setActiveEvidence(cite)}
+                              className="nx-ai-source-pill"
+                              title="Click to inspect verified evidence chunk"
+                            >
+                              <span className="nx-source-id">[{cite.id}]</span>
+                              <span className="nx-source-name">{cite.source_name}</span>
+                              {cite.page !== null && cite.page !== undefined && (
+                                <span className="nx-source-page">· p. {cite.page}</span>
+                              )}
+                              {cite.score !== undefined && cite.score !== null && (
+                                <span className="nx-source-score">{Math.round(cite.score * 100)}%</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -2363,6 +2977,73 @@ function ChatWindow() {
           </div>
         </div>
       )}
+      {/* ========================================================
+          EVIDENCE PREVIEW MODAL / DRAWER
+      ======================================================== */}
+      {activeEvidence && (
+        <div className="nx-evidence-modal-backdrop" onClick={() => setActiveEvidence(null)}>
+          <div className="nx-evidence-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="nx-evidence-modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span className="nx-evidence-badge">Source [{activeEvidence.id}]</span>
+                <h3 className="nx-evidence-title">{activeEvidence.source_name}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveEvidence(null)}
+                className="nx-evidence-close-btn"
+                aria-label="Close evidence preview"
+              >
+                <FaTimes size={14} />
+              </button>
+            </div>
+
+            <div className="nx-evidence-modal-body">
+              <div className="nx-evidence-meta-row">
+                <span className="nx-evidence-meta-item">
+                  <strong>Location:</strong> {activeEvidence.page ? `Page ${activeEvidence.page}` : "General document excerpt"}
+                </span>
+                {activeEvidence.score !== undefined && activeEvidence.score !== null && (
+                  <span className="nx-evidence-meta-item">
+                    <strong>Relevance Match:</strong> {Math.round(activeEvidence.score * 100)}%
+                  </span>
+                )}
+                {activeEvidence.chunk_id && (
+                  <span className="nx-evidence-meta-item nx-evidence-chunk-id">
+                    <strong>Chunk ID:</strong> {activeEvidence.chunk_id}
+                  </span>
+                )}
+              </div>
+
+              <div className="nx-evidence-snippet-title">Verified Text Excerpt</div>
+              <div className="nx-evidence-snippet-box">
+                {activeEvidence.snippet || "No snippet text available."}
+              </div>
+            </div>
+
+            <div className="nx-evidence-modal-footer">
+              <button
+                type="button"
+                className="nx-evidence-btn-secondary"
+                onClick={() => setActiveEvidence(null)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="nx-evidence-btn-primary"
+                onClick={() => {
+                  const downloadUrl = `${API_BASE_URL}/documents/${encodeURIComponent(activeEvidence.source_name)}/file`;
+                  window.open(downloadUrl, "_blank");
+                }}
+              >
+                <FaExternalLinkAlt size={12} style={{ marginRight: "6px" }} /> Open Source Document
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Copy Toast Notification */}
       {copyToast.show && (
         <div className={`nx-copy-toast ${copyToast.isError ? "error" : ""}`} role="status" aria-live="polite">

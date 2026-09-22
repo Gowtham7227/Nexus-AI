@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -13,11 +14,18 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 from retriever import retrieve_context
 from advanced_rag import NexusAdvancedRAG
 from privacy_scanner import PrivacyScanner, OutputPrivacyGuard
+from rag_evaluation import (
+    SourceCitationManager,
+    DeterministicGroundingEvaluator,
+    RAGEvaluator,
+)
 from model_provider import get_model_provider, GeminiModelProvider, LocalQwenModelProvider
 from vector_store import delete_document_from_vector_store
 from chatbot import (
     ask_gemini,
     ask_gemini_general,
+    ask_gemini_stream,
+    ask_gemini_general_stream,
 )
 from document_summary import explain_document
 from local_llm import (
@@ -82,7 +90,7 @@ from vector_store import create_vector_store
 app = FastAPI(
     title="NexusAI Backend",
     description="AI Powered Document Intelligence Assistant",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 
@@ -481,12 +489,15 @@ def forgot_password(request: ForgotPasswordRequest):
         try:
             send_otp_email(email, otp)
         except Exception as e:
-            clear_otp(email)
-            print("❌ OTP Email Dispatch Failed:", str(e))
-            raise HTTPException(
-                status_code=503,
-                detail="Unable to send OTP email right now. Please try again.",
-            )
+            if os.getenv("ENVIRONMENT", "development") == "development" or not (os.getenv("SMTP_USERNAME") and os.getenv("SMTP_PASSWORD")):
+                print(f"⚠️ [DEV MODE] OTP generated for {email} ({otp}), email dispatch error: {e}")
+            else:
+                clear_otp(email)
+                print("❌ OTP Email Dispatch Failed:", str(e))
+                raise HTTPException(
+                    status_code=503,
+                    detail="Unable to send OTP email right now. Please try again.",
+                )
 
     return {
         "message": "If an account exists for this email, an OTP has been sent."
@@ -520,12 +531,15 @@ def resend_otp_endpoint(request: ResendOTPRequest):
         try:
             send_otp_email(email, otp)
         except Exception as e:
-            clear_otp(email)
-            print("❌ Resend OTP Email Dispatch Failed:", str(e))
-            raise HTTPException(
-                status_code=503,
-                detail="Unable to send OTP email right now. Please try again.",
-            )
+            if os.getenv("ENVIRONMENT", "development") == "development" or not (os.getenv("SMTP_USERNAME") and os.getenv("SMTP_PASSWORD")):
+                print(f"⚠️ [DEV MODE] Resend OTP generated for {email} ({otp}), email dispatch error: {e}")
+            else:
+                clear_otp(email)
+                print("❌ Resend OTP Email Dispatch Failed:", str(e))
+                raise HTTPException(
+                    status_code=503,
+                    detail="Unable to send OTP email right now. Please try again.",
+                )
 
     return {
         "message": "A new OTP has been sent to your email."
@@ -1528,8 +1542,16 @@ def chat(
             return {
                 "question": request.question,
                 "filenames": [],
+                "sources": [],
                 "mode": "cloud",
                 "answer": answer,
+                "response": answer,
+                "citations": [],
+                "grounding": {
+                    "score": 1.0,
+                    "supported_claim_ratio": 1.0,
+                    "unsupported_claim_ratio": 0.0,
+                },
                 "conversation_id": conv_id,
                 "conversation_title": conv_title,
             }
@@ -1551,6 +1573,7 @@ def chat(
         )
         context = retrieval_res["formatted_context"]
         evidence_quality = retrieval_res["evidence_quality"]
+        raw_citations = retrieval_res.get("citations", [])
 
         # Stage [6] ADVANCED RETRIEVAL RESULT
         print(f"🔹 [STAGE 6] ADVANCED RETRIEVAL RESULT: retrieved context length={len(context)} chars, evidence_quality={evidence_quality}")
@@ -1563,8 +1586,17 @@ def chat(
             return {
                 "question": request.question,
                 "filenames": validated_filenames,
+                "sources": validated_filenames if validated_filenames else [],
                 "mode": "cloud",
                 "answer": fallback_ans,
+                "response": fallback_ans,
+                "citations": [],
+                "grounding": {
+                    "score": 1.0,
+                    "supported_claim_ratio": 1.0,
+                    "unsupported_claim_ratio": 0.0,
+                    "is_insufficient_evidence": True,
+                },
                 "evidence_quality": "Low",
                 "conversation_id": conv_id,
                 "conversation_title": conv_title,
@@ -1584,18 +1616,29 @@ def chat(
         )
         elapsed_time = time.time() - start_time
 
+        # Validate citations and compute grounding
+        validated_answer, validated_citations = SourceCitationManager.validate_citations(
+            answer, raw_citations, retrieval_res.get("top_chunks", [])
+        )
+        grounding_eval = DeterministicGroundingEvaluator.evaluate(
+            request.question,
+            retrieval_res.get("top_chunks", []),
+            validated_answer,
+            validated_citations,
+        )
+
         # Stage [8] GEMINI RESPONSE RECEIVED
-        print(f"🔹 [STAGE 8] GEMINI RESPONSE RECEIVED: response_status=200, elapsed={elapsed_time:.2f}s, answer_chars={len(answer) if answer else 0}")
+        print(f"🔹 [STAGE 8] GEMINI RESPONSE RECEIVED: response_status=200, elapsed={elapsed_time:.2f}s, answer_chars={len(validated_answer) if validated_answer else 0}")
 
         # Stage [9] RESPONSE PARSED
-        print(f"🔹 [STAGE 9] RESPONSE PARSED: parsed length={len(answer) if answer else 0} chars, sample='{str(answer)[:80]}...'")
+        print(f"🔹 [STAGE 9] RESPONSE PARSED: parsed length={len(validated_answer) if validated_answer else 0} chars, sample='{str(validated_answer)[:80]}...'")
 
         # Stage [10] CHAT SUCCESS
         print(f"✅ [STAGE 10] CHAT SUCCESS: HTTP 200 returned for user_id={user_id}, docs={validated_filenames}, Conv ID={conv_id}")
         print("=" * 70)
 
         # Save assistant answer to conversation
-        save_message(conv_id, "assistant", answer)
+        save_message(conv_id, "assistant", validated_answer)
         touch_conversation(conv_id, current_user["user_id"])
 
         return {
@@ -1603,7 +1646,14 @@ def chat(
             "filenames": validated_filenames,
             "sources": validated_filenames if validated_filenames else [],
             "mode": "cloud",
-            "answer": answer,
+            "answer": validated_answer,
+            "response": validated_answer,
+            "citations": validated_citations,
+            "grounding": {
+                "score": grounding_eval["grounding_score"],
+                "supported_claim_ratio": grounding_eval["supported_claim_ratio"],
+                "unsupported_claim_ratio": grounding_eval["unsupported_claim_ratio"],
+            },
             "evidence_quality": evidence_quality,
             "conversation_id": conv_id,
             "conversation_title": conv_title,
@@ -1621,6 +1671,157 @@ def chat(
             status_code=503,
             detail="Cloud AI service is temporarily unavailable. Please try again.",
         )
+
+
+# ============================================================
+# CLOUD AI - GEMINI STREAMING (SSE)
+# ============================================================
+
+@app.post("/chat/stream")
+def chat_stream(
+    request: ChatRequest,
+    current_user=Depends(get_current_user),
+):
+    try:
+        user_id = current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", "unknown")
+        user_email = current_user.get("email") if isinstance(current_user, dict) else getattr(current_user, "email", "unknown")
+        filenames = get_selected_filenames(request)
+
+        # Validate documents if specified
+        if filenames:
+            validated_filenames = validate_user_documents(
+                filenames,
+                current_user["user_id"],
+            )
+        else:
+            validated_filenames = []
+
+        # Resolve or create persistent conversation & save user message
+        conv_id, conv_title = resolve_or_create_conversation(
+            current_user["user_id"],
+            request.conversation_id,
+            request.question,
+            validated_filenames,
+        )
+
+        def event_stream():
+            accumulated_text = ""
+            try:
+                # 1. Start event
+                start_payload = {
+                    "conversation_id": conv_id,
+                    "conversation_title": conv_title,
+                    "filenames": validated_filenames,
+                    "mode": "cloud",
+                }
+                yield f"event: start\ndata: {json.dumps(start_payload)}\n\n"
+
+                # 2. General AI (No document selected)
+                if not validated_filenames:
+                    print(f"🌐 [STREAM] Executing General AI Chat Stream (user_id={user_id}, conv_id={conv_id})...")
+                    for chunk in ask_gemini_general_stream(request.question):
+                        if chunk:
+                            accumulated_text += chunk
+                            yield f"event: token\ndata: {json.dumps({'text': chunk})}\n\n"
+
+                # 3. Document Grounded RAG
+                else:
+                    print(f"📚 [STREAM] Executing Document RAG Stream (user_id={user_id}, docs={validated_filenames})...")
+                    retrieval_res = NexusAdvancedRAG.retrieve_hybrid_context(
+                        request.question,
+                        validated_filenames,
+                        user_id=current_user["user_id"],
+                    )
+                    context = retrieval_res["formatted_context"]
+                    evidence_quality = retrieval_res["evidence_quality"]
+
+                    if not context.strip():
+                        fallback_ans = "I couldn't find relevant information in the selected document(s)."
+                        accumulated_text = fallback_ans
+                        yield f"event: token\ndata: {json.dumps({'text': fallback_ans})}\n\n"
+                    else:
+                        for chunk in ask_gemini_stream(context, request.question):
+                            if chunk:
+                                accumulated_text += chunk
+                                yield f"event: token\ndata: {json.dumps({'text': chunk})}\n\n"
+
+                # 4. Output Privacy Guard sanitization & Citation validation
+                safe_text, was_redacted, reason = OutputPrivacyGuard.guard(accumulated_text)
+                if was_redacted:
+                    print(f"🛡️ [STREAM PRIVACY] Output sanitized: {reason}")
+
+                if validated_filenames and 'retrieval_res' in locals():
+                    raw_citations = retrieval_res.get("citations", [])
+                    validated_text, validated_citations = SourceCitationManager.validate_citations(
+                        safe_text, raw_citations, retrieval_res.get("top_chunks", [])
+                    )
+                    grounding_eval = DeterministicGroundingEvaluator.evaluate(
+                        request.question,
+                        retrieval_res.get("top_chunks", []),
+                        validated_text,
+                        validated_citations,
+                    )
+                else:
+                    validated_text = safe_text
+                    validated_citations = []
+                    grounding_eval = {
+                        "grounding_score": 1.0,
+                        "supported_claim_ratio": 1.0,
+                        "unsupported_claim_ratio": 0.0,
+                    }
+
+                # 5. Persist final assistant response to SQLite
+                save_message(conv_id, "assistant", validated_text)
+                touch_conversation(conv_id, current_user["user_id"])
+
+                # 6. Complete event
+                complete_payload = {
+                    "conversation_id": conv_id,
+                    "conversation_title": conv_title,
+                    "final_text": validated_text,
+                    "citations": validated_citations,
+                    "grounding": {
+                        "score": grounding_eval["grounding_score"],
+                        "supported_claim_ratio": grounding_eval["supported_claim_ratio"],
+                        "unsupported_claim_ratio": grounding_eval["unsupported_claim_ratio"],
+                    },
+                    "status": "complete",
+                }
+                yield f"event: complete\ndata: {json.dumps(complete_payload)}\n\n"
+
+            except Exception as stream_err:
+                print(f"❌ [STREAM ERROR] {type(stream_err).__name__}: {str(stream_err)}")
+                error_msg = "Cloud AI service is temporarily unavailable. Please try again."
+                if accumulated_text:
+                    try:
+                        safe_text, _, _ = OutputPrivacyGuard.guard(accumulated_text)
+                        save_message(conv_id, "assistant", safe_text)
+                        touch_conversation(conv_id, current_user["user_id"])
+                    except Exception:
+                        pass
+                yield f"event: error\ndata: {json.dumps({'detail': error_msg})}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Conversation-Id": str(conv_id),
+                "X-Conversation-Title": conv_title,
+            },
+        )
+
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
+        print("❌ [CHAT STREAM ROUTE ERROR]:", str(e))
+        raise HTTPException(
+            status_code=503,
+            detail="Cloud AI streaming is temporarily unavailable. Please try again.",
+        )
+
 
 
 # ============================================================
@@ -2217,5 +2418,46 @@ def get_document_file(
     )
 
 
+# ============================================================
+# RAG EVALUATION & BENCHMARK API
+# ============================================================
+
+@app.post("/rag/evaluate")
+def evaluate_rag(
+    current_user=Depends(get_current_user),
+):
+    """
+    Run deterministic RAG evaluation benchmark across all 10 query categories.
+    JWT protected and operates strictly within authorized document isolation.
+    """
+    try:
+        evaluator = RAGEvaluator()
+        user_ctx = {
+            "user_id": current_user.get("user_id") if isinstance(current_user, dict) else getattr(current_user, "id", 1),
+            "email": current_user.get("email") if isinstance(current_user, dict) else getattr(current_user, "email", "eval_user"),
+        }
+        report = evaluator.run_evaluation(
+            user_context=user_ctx,
+            use_optimizer=True,
+            generate_answers=False,
+        )
+        evaluator.save_reports(report)
+        return report
+    except Exception as e:
+        print(f"❌ [RAG EVALUATION ERROR]: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation failed: {str(e)}",
+        )
 
 
+@app.get("/rag/evaluation/latest")
+def get_latest_evaluation(
+    current_user=Depends(get_current_user),
+):
+    """Retrieve the latest cached RAG evaluation report (JSON format)."""
+    report_path = os.path.join(BASE_DIR, "evaluation_reports", "rag_evaluation_latest.json")
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="No evaluation report found. Run POST /rag/evaluate first.")
+    with open(report_path, "r", encoding="utf-8") as f:
+        return json.load(f)

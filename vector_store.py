@@ -41,8 +41,12 @@ print("🔹 Loading HuggingFace embedding model...")
 print("Model:", EMBEDDING_MODEL_NAME)
 print("=" * 70)
 
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 embedding_model = HuggingFaceEmbeddings(
-    model_name=EMBEDDING_MODEL_NAME
+    model_name=EMBEDDING_MODEL_NAME,
+    model_kwargs={"local_files_only": True},
 )
 
 print("✅ Embedding model loaded")

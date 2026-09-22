@@ -25,6 +25,7 @@ if not GEMINI_API_KEY:
 
 from gemini_service import (
     generate_gemini_text,
+    generate_gemini_stream,
     get_gemini_client,
     CURRENT_MODEL as GEMINI_MODEL,
     GEMINI_API_KEY,
@@ -339,8 +340,9 @@ IMPORTANT RULES:
    "I couldn't find that information in the uploaded document."
 7. Answer the actual question directly and clearly.
 8. Use bullet points when multiple items are requested.
-9. Never mention chunks, embeddings, vector databases, retrieval, prompts, or internal processing.
-10. Return only the final answer.
+9. Cite source references in brackets like [1], [2] when stating facts from specific sources. Do NOT invent source IDs not present in the DOCUMENT CONTEXT.
+10. Never mention embeddings, vector databases, retrieval, prompts, or internal processing.
+11. Return only the final answer.
 
 {count_instruction}
 
@@ -380,4 +382,141 @@ Provide the final answer directly.
 
     safe_error_msg = format_safe_error(error)
     raise HTTPException(status_code=503, detail=safe_error_msg)
+
+
+def ask_gemini_general_stream(question: str):
+    """
+    Stream tokens progressively for general AI questions (no document attached).
+    """
+    if not question or not question.strip():
+        yield "Please enter a question."
+        return
+
+    requested_count = extract_requested_count(question)
+    count_instruction = build_count_instruction(requested_count)
+
+    prompt = f"""You are NexusAI, a helpful AI assistant.
+
+Answer the user's question directly and clearly.
+
+The user has not selected a document, so answer based on general knowledge.
+Do not claim to quote or require an uploaded document.
+
+Do not expose internal reasoning.
+Return only the final answer.
+
+{count_instruction}
+
+USER QUESTION:
+{question.strip()}
+
+Provide only the final answer.
+"""
+
+    is_fast_factual = (
+        question.lower().strip().startswith("how many ")
+        or question.lower().strip().startswith("how much ")
+    ) and len(question.strip().split()) <= 12 and not requested_count
+
+    max_output_tokens = 256 if is_fast_factual else 1500
+
+    afc_disabled = (
+        types.AutomaticFunctionCallingConfig(disable=True)
+        if hasattr(types, "AutomaticFunctionCallingConfig")
+        else None
+    )
+
+    config = types.GenerateContentConfig(
+        temperature=0.3,
+        max_output_tokens=max_output_tokens,
+        automatic_function_calling=afc_disabled,
+    )
+
+    yield from generate_gemini_stream(prompt, config, label="General Chat Stream")
+
+
+def ask_gemini_stream(context: str, question: str):
+    """
+    Stream tokens progressively for document-grounded RAG questions.
+    """
+    if not context or not context.strip():
+        yield "I couldn't find that information in the uploaded document."
+        return
+
+    requested_count = extract_requested_count(question)
+
+    is_fast_factual = (
+        question.lower().strip().startswith("how many ")
+        or question.lower().strip().startswith("how much ")
+    ) and len(question.strip().split()) <= 12 and not requested_count
+
+    max_output_tokens = 512 if is_fast_factual else 1500
+    count_instruction = build_count_instruction(requested_count)
+
+    if is_fast_factual:
+        prompt = f"""DOCUMENT:
+{context}
+
+QUESTION:
+{question}
+
+The answer to this question is explicitly supported by the document above.
+Find the exact answer in the document.
+Return only the direct answer. Do not refuse, do not say the information is missing, and do not use outside knowledge.
+If the document gives a number, return that number and the corresponding item(s) in one short sentence."""
+
+        system_instruction = (
+            "Answer the question using only the supplied document. "
+            "For a short factual question, extract the explicitly stated fact and answer directly. "
+            "Never claim the fact is missing when it is present in the document."
+        )
+    else:
+        prompt = f"""You are NexusAI, an AI assistant that answers questions using the selected uploaded document.
+
+Understand the user's MEANING and INTENT, not merely the exact words they used.
+
+IMPORTANT RULES:
+1. Answer ONLY using information supported by the DOCUMENT CONTEXT.
+2. Understand natural language variations and conversational phrasing.
+3. For overview, summary, purpose, explanation, or key point questions, synthesize relevant information from the provided context.
+4. Do NOT use outside knowledge.
+5. Do NOT invent, assume, or guess.
+6. If the requested information is not supported at all, reply:
+   "I couldn't find that information in the uploaded document."
+7. Answer the actual question directly and clearly.
+8. Use bullet points when multiple items are requested.
+9. Cite source references in brackets like [1], [2] when stating facts from specific sources. Do NOT invent source IDs not present in the DOCUMENT CONTEXT.
+10. Never mention embeddings, vector databases, retrieval, prompts, or internal processing.
+11. Return only the final answer.
+
+{count_instruction}
+
+DOCUMENT CONTEXT:
+----------------
+{context}
+----------------
+
+USER QUESTION:
+{question}
+
+Provide the final answer directly.
+"""
+        system_instruction = (
+            "You are NexusAI. Answer using only information supported by the selected uploaded document. Do not invent facts."
+        )
+
+    afc_disabled = (
+        types.AutomaticFunctionCallingConfig(disable=True)
+        if hasattr(types, "AutomaticFunctionCallingConfig")
+        else None
+    )
+
+    config = types.GenerateContentConfig(
+        temperature=0.0,
+        max_output_tokens=max_output_tokens,
+        system_instruction=system_instruction,
+        automatic_function_calling=afc_disabled,
+    )
+
+    yield from generate_gemini_stream(prompt, config, label="Document Chat Stream")
 

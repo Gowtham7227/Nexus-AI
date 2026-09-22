@@ -39,6 +39,13 @@ from datetime import datetime, timedelta, timezone
 from jose import jwt
 import requests
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 BASE = os.getenv("NEXUS_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
 TIMEOUT = 20
 results = []
@@ -319,6 +326,7 @@ def main():
     # 24. OTP abuse & rate limiting
     otp_email = f"otp_{uuid.uuid4().hex[:6]}@nexusai.test"
     req("POST", "/register", json={"email": otp_email, "password": "StrongPassword123!"})
+    req("POST", "/forgot-password", json={"email": otp_email})
     rate_limited = False
     for _ in range(7):
         r_otp = req("POST", "/verify-otp", json={"email": otp_email, "otp": "000000"})

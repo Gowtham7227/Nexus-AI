@@ -1,0 +1,639 @@
+{
+  "timestamp": "2026-09-21T17:05:27Z",
+  "active_model": "gemini-3.5-flash-lite",
+  "candidate_models": [
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite"
+  ],
+  "cases": [
+    {
+      "case_id": "1_simple_factual",
+      "category": "Simple Factual",
+      "question": "What is the heliosphere?",
+      "filenames": [
+        "ss-high (1).pdf"
+      ],
+      "prompt_breakdown": {
+        "system_instruction": "You are NexusAI. Answer using only information supported by the selected uploaded document. Do not invent facts.",
+        "system_instruction_chars": 112,
+        "system_instruction_tokens_est": 29,
+        "context_chars": 3428,
+        "context_tokens_est": 902,
+        "question_chars": 24,
+        "question_tokens_est": 6,
+        "total_prompt_chars": 4611,
+        "total_prompt_tokens_est": 1213,
+        "is_fast_factual": false,
+        "max_output_tokens_config": 1500
+      },
+      "non_streaming_stats": {
+        "retrieval_ms": {
+          "min": 315.58,
+          "max": 12588.99,
+          "avg": 4410.13,
+          "median": 325.82
+        },
+        "api_generation_ms": {
+          "min": 1073.69,
+          "max": 1986.31,
+          "avg": 1584.96,
+          "median": 1694.89
+        },
+        "total_request_ms": {
+          "min": 1401.69,
+          "max": 14289.7,
+          "avg": 5998.15,
+          "median": 2303.07
+        },
+        "output_tokens_est": {
+          "min": 112,
+          "max": 115,
+          "avg": 113.33,
+          "median": 113
+        },
+        "tokens_per_sec": {
+          "min": 57.9,
+          "max": 104.31,
+          "avg": 76.29,
+          "median": 66.67
+        },
+        "grounding_score": {
+          "min": 1.0,
+          "max": 1.0,
+          "avg": 1.0,
+          "median": 1.0
+        }
+      },
+      "streaming_stats": {
+        "retrieval_ms": {
+          "min": 373.01,
+          "max": 392.41,
+          "avg": 379.65,
+          "median": 373.52
+        },
+        "overall_ttft_ms": {
+          "min": 1471.75,
+          "max": 2932.95,
+          "avg": 2136.23,
+          "median": 2003.98
+        },
+        "stream_api_ttft_ms": {
+          "min": 1098.45,
+          "max": 2540.24,
+          "avg": 1756.29,
+          "median": 1630.17
+        },
+        "stream_token_generation_duration_ms": {
+          "min": 96.04,
+          "max": 1348.67,
+          "avg": 580.09,
+          "median": 295.57
+        },
+        "stream_total_api_ms": {
+          "min": 1394.61,
+          "max": 2993.7,
+          "avg": 2341.81,
+          "median": 2637.12
+        },
+        "total_request_ms": {
+          "min": 1768.93,
+          "max": 3368.32,
+          "avg": 2722.93,
+          "median": 3031.53
+        },
+        "chunk_count_received": {
+          "min": 3,
+          "max": 4,
+          "avg": 3.67,
+          "median": 4
+        },
+        "output_tokens_est": {
+          "min": 62,
+          "max": 108,
+          "avg": 91.33,
+          "median": 104
+        },
+        "token_generation_rate_tps": {
+          "min": 80.08,
+          "max": 645.59,
+          "avg": 359.18,
+          "median": 351.87
+        },
+        "grounding_score": {
+          "min": 1.0,
+          "max": 1.0,
+          "avg": 1.0,
+          "median": 1.0
+        }
+      },
+      "perceived_ttft_delta_ms": 3861.92,
+      "perceived_ttft_speedup_ratio": 2.81,
+      "sample_answer_non_streaming": "The heliosphere is an enormous bubble created by the solar wind, which is a stream of charged gas blowing outward from t...",
+      "sample_answer_streaming": "The heliosphere is an enormous bubble formed by the area of the Sun's influence that stretches far beyond the planets [2..."
+    },
+    {
+      "case_id": "2_conceptual",
+      "category": "Conceptual",
+      "question": "Explain the zero-trust security architecture and pre-retrieval tenant isolation in NexusAI.",
+      "filenames": [
+        "architecture_spec.txt"
+      ],
+      "prompt_breakdown": {
+        "system_instruction": "You are NexusAI. Answer using only information supported by the selected uploaded document. Do not invent facts.",
+        "system_instruction_chars": 112,
+        "system_instruction_tokens_est": 29,
+        "context_chars": 269,
+        "context_tokens_est": 71,
+        "question_chars": 91,
+        "question_tokens_est": 24,
+        "total_prompt_chars": 1519,
+        "total_prompt_tokens_est": 400,
+        "is_fast_factual": false,
+        "max_output_tokens_config": 1500
+      },
+      "non_streaming_stats": {
+        "retrieval_ms": {
+          "min": 39.45,
+          "max": 71.2,
+          "avg": 53.99,
+          "median": 51.32
+        },
+        "api_generation_ms": {
+          "min": 777.02,
+          "max": 891.93,
+          "avg": 848.29,
+          "median": 875.92
+        },
+        "total_request_ms": {
+          "min": 828.65,
+          "max": 947.41,
+          "avg": 902.55,
+          "median": 931.58
+        },
+        "output_tokens_est": {
+          "min": 15,
+          "max": 15,
+          "avg": 15,
+          "median": 15
+        },
+        "tokens_per_sec": {
+          "min": 16.82,
+          "max": 19.3,
+          "avg": 17.75,
+          "median": 17.12
+        },
+        "grounding_score": {
+          "min": 1.0,
+          "max": 1.0,
+          "avg": 1.0,
+          "median": 1.0
+        }
+      },
+      "streaming_stats": {
+        "retrieval_ms": {
+          "min": 42.57,
+          "max": 48.3,
+          "avg": 44.69,
+          "median": 43.21
+        },
+        "overall_ttft_ms": {
+          "min": 957.93,
+          "max": 1305.27,
+          "avg": 1163.08,
+          "median": 1226.04
+        },
+        "stream_api_ttft_ms": {
+          "min": 914.65,
+          "max": 1256.91,
+          "avg": 1118.32,
+          "median": 1183.4
+        },
+        "stream_token_generation_duration_ms": {
+          "min": 0.0,
+          "max": 43.4,
+          "avg": 14.47,
+          "median": 0.0
+        },
+        "stream_total_api_ms": {
+          "min": 959.08,
+          "max": 1257.63,
+          "avg": 1133.64,
+          "median": 1184.2
+        },
+        "total_request_ms": {
+          "min": 1002.55,
+          "max": 1306.1,
+          "avg": 1178.54,
+          "median": 1226.97
+        },
+        "chunk_count_received": {
+          "min": 1,
+          "max": 2,
+          "avg": 1.33,
+          "median": 1
+        },
+        "output_tokens_est": {
+          "min": 15,
+          "max": 15,
+          "avg": 15,
+          "median": 15
+        },
+        "token_generation_rate_tps": {
+          "min": 0.0,
+          "max": 345.62,
+          "avg": 115.21,
+          "median": 0.0
+        },
+        "grounding_score": {
+          "min": 1.0,
+          "max": 1.0,
+          "avg": 1.0,
+          "median": 1.0
+        }
+      },
+      "perceived_ttft_delta_ms": -260.53,
+      "perceived_ttft_speedup_ratio": 0.78,
+      "sample_answer_non_streaming": "I couldn't find that information in the uploaded document.",
+      "sample_answer_streaming": "I couldn't find that information in the uploaded document."
+    },
+    {
+      "case_id": "3_comparison",
+      "category": "Comparison",
+      "question": "What is the difference between gas giants and ice giants?",
+      "filenames": [
+        "ss-high (1).pdf"
+      ],
+      "prompt_breakdown": {
+        "system_instruction": "You are NexusAI. Answer using only information supported by the selected uploaded document. Do not invent facts.",
+        "system_instruction_chars": 112,
+        "system_instruction_tokens_est": 29,
+        "context_chars": 5164,
+        "context_tokens_est": 1359,
+        "question_chars": 57,
+        "question_tokens_est": 15,
+        "total_prompt_chars": 6380,
+        "total_prompt_tokens_est": 1679,
+        "is_fast_factual": false,
+        "max_output_tokens_config": 1500
+      },
+      "non_streaming_stats": {
+        "retrieval_ms": {
+          "min": 848.27,
+          "max": 1065.94,
+          "avg": 932.07,
+          "median": 881.99
+        },
+        "api_generation_ms": {
+          "min": 1278.89,
+          "max": 1931.97,
+          "avg": 1709.59,
+          "median": 1917.92
+        },
+        "total_request_ms": {
+          "min": 2346.5,
+          "max": 2815.67,
+          "avg": 2643.56,
+          "median": 2768.52
+        },
+        "output_tokens_est": {
+          "min": 112,
+          "max": 173,
+          "avg": 132.33,
+          "median": 112
+        },
+        "tokens_per_sec": {
+          "min": 57.97,
+          "max": 90.2,
+          "avg": 78.58,
+          "median": 87.58
+        },
+        "grounding_score": {
+          "min": 1.0,
+          "max": 1.0,
+          "avg": 1.0,
+          "median": 1.0
+        }
+      },
+      "streaming_stats": {
+        "retrieval_ms": {
+          "min": 838.68,
+          "max": 904.74,
+          "avg": 877.14,
+          "median": 887.99
+        },
+        "overall_ttft_ms": {
+          "min": 1906.54,
+          "max": 26571.33,
+          "avg": 13157.02,
+          "median": 10993.19
+        },
+        "stream_api_ttft_ms": {
+          "min": 1067.45,
+          "max": 25666.15,
+          "avg": 12279.45,
+          "median": 10104.74
+        },
+        "stream_token_generation_duration_ms": {
+          "min": 150.41,
+          "max": 715.39,
+          "avg": 391.1,
+          "median": 307.49
+        },
+        "stream_total_api_ms": {
+          "min": 1219.32,
+          "max": 26040.62,
+          "avg": 12714.59,
+          "median": 10883.84
+        },
+        "total_request_ms": {
+          "min": 2061.48,
+          "max": 26947.72,
+          "avg": 13594.61,
+          "median": 11774.62
+        },
+        "chunk_count_received": {
+          "min": 5,
+          "max": 6,
+          "avg": 5.67,
+          "median": 6
+        },
+        "output_tokens_est": {
+          "min": 112,
+          "max": 170,
+          "avg": 143.33,
+          "median": 148
+        },
+        "token_generation_rate_tps": {
+          "min": 206.88,
+          "max": 744.64,
+          "avg": 501.46,
+          "median": 552.87
+        },
+        "grounding_score": {
+          "min": 0.88,
+          "max": 1.0,
+          "avg": 0.96,
+          "median": 1.0
+        }
+      },
+      "perceived_ttft_delta_ms": -10513.46,
+      "perceived_ttft_speedup_ratio": 0.2,
+      "sample_answer_non_streaming": "Based on the provided document, the differences between gas giants and ice giants include:\n\n* **Planets included:** Jupi...",
+      "sample_answer_streaming": "Based on the provided document, the differences between gas giants and ice giants include:\n\n* **Planets included:** Jupi..."
+    },
+    {
+      "case_id": "4_multi_document",
+      "category": "Multi-Document",
+      "question": "Compare the storage architecture in enterprise_storage.txt with the compute spec in benchmark_report.txt.",
+      "filenames": [
+        "enterprise_storage.txt",
+        "benchmark_report.txt"
+      ],
+      "prompt_breakdown": {
+        "system_instruction": "You are NexusAI. Answer using only information supported by the selected uploaded document. Do not invent facts.",
+        "system_instruction_chars": 112,
+        "system_instruction_tokens_est": 29,
+        "context_chars": 572,
+        "context_tokens_est": 151,
+        "question_chars": 105,
+        "question_tokens_est": 28,
+        "total_prompt_chars": 1836,
+        "total_prompt_tokens_est": 483,
+        "is_fast_factual": false,
+        "max_output_tokens_config": 1500
+      },
+      "non_streaming_stats": {
+        "retrieval_ms": {
+          "min": 131.63,
+          "max": 203.57,
+          "avg": 177.8,
+          "median": 198.19
+        },
+        "api_generation_ms": {
+          "min": 1266.58,
+          "max": 6092.35,
+          "avg": 3284.82,
+          "median": 2495.53
+        },
+        "total_request_ms": {
+          "min": 1399.16,
+          "max": 6291.89,
+          "avg": 3463.74,
+          "median": 2700.17
+        },
+        "output_tokens_est": {
+          "min": 124,
+          "max": 148,
+          "avg": 139.33,
+          "median": 146
+        },
+        "tokens_per_sec": {
+          "min": 23.96,
+          "max": 116.85,
+          "avg": 63.5,
+          "median": 49.69
+        },
+        "grounding_score": {
+          "min": 0.62,
+          "max": 0.88,
+          "avg": 0.75,
+          "median": 0.75
+        }
+      },
+      "streaming_stats": {
+        "retrieval_ms": {
+          "min": 122.98,
+          "max": 156.8,
+          "avg": 135.91,
+          "median": 127.96
+        },
+        "overall_ttft_ms": {
+          "min": 1164.68,
+          "max": 2509.75,
+          "avg": 1928.34,
+          "median": 2110.58
+        },
+        "stream_api_ttft_ms": {
+          "min": 1036.63,
+          "max": 2352.86,
+          "avg": 1792.33,
+          "median": 1987.51
+        },
+        "stream_token_generation_duration_ms": {
+          "min": 5.17,
+          "max": 372.87,
+          "avg": 205.35,
+          "median": 238.01
+        },
+        "stream_total_api_ms": {
+          "min": 1276.0,
+          "max": 2372.17,
+          "avg": 2003.31,
+          "median": 2361.75
+        },
+        "total_request_ms": {
+          "min": 1404.99,
+          "max": 2519.62,
+          "avg": 2140.27,
+          "median": 2496.21
+        },
+        "chunk_count_received": {
+          "min": 5,
+          "max": 6,
+          "avg": 5.67,
+          "median": 6
+        },
+        "output_tokens_est": {
+          "min": 136,
+          "max": 151,
+          "avg": 145,
+          "median": 148
+        },
+        "token_generation_rate_tps": {
+          "min": 404.97,
+          "max": 26302.05,
+          "avg": 9109.61,
+          "median": 621.82
+        },
+        "grounding_score": {
+          "min": 0.62,
+          "max": 1.0,
+          "avg": 0.75,
+          "median": 0.62
+        }
+      },
+      "perceived_ttft_delta_ms": 1535.4,
+      "perceived_ttft_speedup_ratio": 1.8,
+      "sample_answer_non_streaming": "Based on the provided documents, the storage architecture and compute performance specifications are as follows:\n\n* **St...",
+      "sample_answer_streaming": "Based on the provided documents, the storage architecture and compute performance specifications are as follows:\n\n* **St..."
+    },
+    {
+      "case_id": "5_unsupported",
+      "category": "Unsupported",
+      "question": "What is the secret quantum core warp propulsion frequency of the Voyager spacecraft?",
+      "filenames": [
+        "ss-high (1).pdf"
+      ],
+      "prompt_breakdown": {
+        "system_instruction": "You are NexusAI. Answer using only information supported by the selected uploaded document. Do not invent facts.",
+        "system_instruction_chars": 112,
+        "system_instruction_tokens_est": 29,
+        "context_chars": 4616,
+        "context_tokens_est": 1215,
+        "question_chars": 84,
+        "question_tokens_est": 22,
+        "total_prompt_chars": 5859,
+        "total_prompt_tokens_est": 1542,
+        "is_fast_factual": false,
+        "max_output_tokens_config": 1500
+      },
+      "non_streaming_stats": {
+        "retrieval_ms": {
+          "min": 369.59,
+          "max": 375.48,
+          "avg": 372.66,
+          "median": 372.91
+        },
+        "api_generation_ms": {
+          "min": 1698.59,
+          "max": 18142.41,
+          "avg": 7958.91,
+          "median": 4035.72
+        },
+        "total_request_ms": {
+          "min": 2071.99,
+          "max": 18519.03,
+          "avg": 8332.3,
+          "median": 4405.88
+        },
+        "output_tokens_est": {
+          "min": 15,
+          "max": 15,
+          "avg": 15,
+          "median": 15
+        },
+        "tokens_per_sec": {
+          "min": 0.83,
+          "max": 8.83,
+          "avg": 4.46,
+          "median": 3.72
+        },
+        "grounding_score": {
+          "min": 1.0,
+          "max": 1.0,
+          "avg": 1.0,
+          "median": 1.0
+        }
+      },
+      "streaming_stats": {
+        "retrieval_ms": {
+          "min": 350.53,
+          "max": 369.41,
+          "avg": 360.32,
+          "median": 361.02
+        },
+        "overall_ttft_ms": {
+          "min": 1919.28,
+          "max": 2977.54,
+          "avg": 2277.82,
+          "median": 1936.65
+        },
+        "stream_api_ttft_ms": {
+          "min": 1557.8,
+          "max": 2607.77,
+          "avg": 1917.11,
+          "median": 1585.76
+        },
+        "stream_token_generation_duration_ms": {
+          "min": 18.48,
+          "max": 180.49,
+          "avg": 79.61,
+          "median": 39.87
+        },
+        "stream_total_api_ms": {
+          "min": 1638.65,
+          "max": 2638.6,
+          "avg": 2016.78,
+          "median": 1773.08
+        },
+        "total_request_ms": {
+          "min": 2000.39,
+          "max": 3008.6,
+          "avg": 2377.71,
+          "median": 2124.13
+        },
+        "chunk_count_received": {
+          "min": 2,
+          "max": 2,
+          "avg": 2,
+          "median": 2
+        },
+        "output_tokens_est": {
+          "min": 15,
+          "max": 15,
+          "avg": 15,
+          "median": 15
+        },
+        "token_generation_rate_tps": {
+          "min": 83.11,
+          "max": 811.58,
+          "avg": 423.65,
+          "median": 376.26
+        },
+        "grounding_score": {
+          "min": 1.0,
+          "max": 1.0,
+          "avg": 1.0,
+          "median": 1.0
+        }
+      },
+      "perceived_ttft_delta_ms": 6054.48,
+      "perceived_ttft_speedup_ratio": 3.66,
+      "sample_answer_non_streaming": "I couldn't find that information in the uploaded document.",
+      "sample_answer_streaming": "I couldn't find that information in the uploaded document."
+    }
+  ]
+}

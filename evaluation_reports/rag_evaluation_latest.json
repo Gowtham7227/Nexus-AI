@@ -1,0 +1,550 @@
+{
+  "timestamp": "2026-09-21T17:59:37Z",
+  "dataset_name": "NexusAI Deterministic RAG Evaluation Benchmark",
+  "dataset_version": "1.0.0",
+  "total_cases": 10,
+  "optimizer_enabled": true,
+  "global_metrics": {
+    "mean_hit_at_5": 1.0,
+    "mean_mrr": 1.0,
+    "mean_grounding_score": 0.4,
+    "mean_citation_correctness": 1.0,
+    "mean_latency_ms": 3685.67,
+    "total_duration_ms": 36856.74
+  },
+  "category_summary": {
+    "simple_factual": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 0.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 16475.92
+    },
+    "exact_technical": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 0.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 87.29
+    },
+    "conceptual": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 0.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 84.13
+    },
+    "procedural": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 0.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 79.27
+    },
+    "comparison": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 1.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 14296.42
+    },
+    "multi_document": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 0.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 529.19
+    },
+    "complex_analytical": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 0.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 111.14
+    },
+    "ambiguous_insufficient": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 1.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 97.44
+    },
+    "ocr_derived": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 1.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 57.73
+    },
+    "page_specific": {
+      "cases": 1,
+      "hit_at_k": 1.0,
+      "mrr": 1.0,
+      "grounding_score": 1.0,
+      "citation_correctness": 1.0,
+      "avg_latency_ms": 5038.14
+    }
+  },
+  "case_results": [
+    {
+      "id": "eval_simple_factual_001",
+      "category": "simple_factual",
+      "question": "What is the primary mission objective of NexusAI and its maximum upload capacity?",
+      "answerable": true,
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "retrieved_chunk_count": 1,
+      "citations_count": 1,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 1.0
+      },
+      "grounding_metrics": {
+        "grounding_score": 0.0,
+        "supported_claim_ratio": 0.0,
+        "unsupported_claim_ratio": 1.0
+      },
+      "concept_coverage": 0.5,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 16475.92,
+      "timings": {
+        "optimizer_ms": 0.203,
+        "query_classification_ms": 0.192,
+        "query_expansion_ms": 0.13,
+        "semantic_search_ms": 236.62,
+        "bm25_ms": 0.24,
+        "fusion_ms": 0.01,
+        "cross_encoder_ms": 15995.2,
+        "parent_window_ms": 0.01,
+        "compression_ms": 0.46,
+        "total_retrieval_ms": 16474.82,
+        "candidate_count_before_rerank": 1,
+        "candidate_count_after_rerank": 1,
+        "final_context_chunks": 1,
+        "final_context_chars": 205
+      }
+    },
+    {
+      "id": "eval_exact_technical_002",
+      "category": "exact_technical",
+      "question": "What is the exact database table and schema used for tracking document processing status?",
+      "answerable": true,
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "retrieved_chunk_count": 1,
+      "citations_count": 1,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 1.0
+      },
+      "grounding_metrics": {
+        "grounding_score": 0.0,
+        "supported_claim_ratio": 0.0,
+        "unsupported_claim_ratio": 1.0
+      },
+      "concept_coverage": 1.0,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 87.29,
+      "timings": {
+        "optimizer_ms": 0.075,
+        "query_classification_ms": 0.063,
+        "query_expansion_ms": 0.02,
+        "semantic_search_ms": 63.73,
+        "bm25_ms": 0.1,
+        "fusion_ms": 0.02,
+        "cross_encoder_ms": 20.74,
+        "parent_window_ms": 0.01,
+        "compression_ms": 0.06,
+        "total_retrieval_ms": 86.82,
+        "candidate_count_before_rerank": 1,
+        "candidate_count_after_rerank": 1,
+        "final_context_chunks": 1,
+        "final_context_chars": 205
+      }
+    },
+    {
+      "id": "eval_conceptual_003",
+      "category": "conceptual",
+      "question": "Explain the zero-trust security architecture and pre-retrieval tenant isolation in NexusAI.",
+      "answerable": true,
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "retrieved_chunk_count": 1,
+      "citations_count": 1,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 1.0
+      },
+      "grounding_metrics": {
+        "grounding_score": 0.0,
+        "supported_claim_ratio": 0.0,
+        "unsupported_claim_ratio": 1.0
+      },
+      "concept_coverage": 0.2,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 84.13,
+      "timings": {
+        "optimizer_ms": 0.062,
+        "query_classification_ms": 0.055,
+        "query_expansion_ms": 0.03,
+        "semantic_search_ms": 60.0,
+        "bm25_ms": 0.05,
+        "fusion_ms": 0.01,
+        "cross_encoder_ms": 21.63,
+        "parent_window_ms": 0.01,
+        "compression_ms": 0.06,
+        "total_retrieval_ms": 83.66,
+        "candidate_count_before_rerank": 1,
+        "candidate_count_after_rerank": 1,
+        "final_context_chunks": 1,
+        "final_context_chars": 269
+      }
+    },
+    {
+      "id": "eval_procedural_004",
+      "category": "procedural",
+      "question": "What are the sequential steps executed during hybrid RRF retrieval and reranking?",
+      "answerable": true,
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "retrieved_chunk_count": 1,
+      "citations_count": 1,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 1.0
+      },
+      "grounding_metrics": {
+        "grounding_score": 0.0,
+        "supported_claim_ratio": 0.0,
+        "unsupported_claim_ratio": 1.0
+      },
+      "concept_coverage": 0.4,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 79.27,
+      "timings": {
+        "optimizer_ms": 0.121,
+        "query_classification_ms": 0.111,
+        "query_expansion_ms": 0.02,
+        "semantic_search_ms": 58.93,
+        "bm25_ms": 0.04,
+        "fusion_ms": 0.01,
+        "cross_encoder_ms": 17.73,
+        "parent_window_ms": 0.01,
+        "compression_ms": 0.05,
+        "total_retrieval_ms": 78.8,
+        "candidate_count_before_rerank": 1,
+        "candidate_count_after_rerank": 1,
+        "final_context_chunks": 1,
+        "final_context_chars": 163
+      }
+    },
+    {
+      "id": "eval_comparison_005",
+      "category": "comparison",
+      "question": "What is the difference between gas giants and ice giants according to planetary composition?",
+      "answerable": true,
+      "expected_sources": [
+        "ss-high (1).pdf"
+      ],
+      "retrieved_chunk_count": 6,
+      "citations_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 0.4
+      },
+      "grounding_metrics": {
+        "grounding_score": 1.0,
+        "supported_claim_ratio": 1.0,
+        "unsupported_claim_ratio": 0.0
+      },
+      "concept_coverage": 1.0,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 14296.42,
+      "timings": {
+        "optimizer_ms": 0.022,
+        "query_classification_ms": 0.015,
+        "query_expansion_ms": 0.04,
+        "semantic_search_ms": 13423.34,
+        "bm25_ms": 17.48,
+        "fusion_ms": 0.12,
+        "cross_encoder_ms": 834.55,
+        "parent_window_ms": 0.13,
+        "compression_ms": 0.03,
+        "total_retrieval_ms": 14293.64,
+        "candidate_count_before_rerank": 52,
+        "candidate_count_after_rerank": 6,
+        "final_context_chunks": 6,
+        "final_context_chars": 5117
+      }
+    },
+    {
+      "id": "eval_multi_document_006",
+      "category": "multi_document",
+      "question": "Compare the storage architecture in enterprise_storage.txt with the compute spec in benchmark_report.txt.",
+      "answerable": true,
+      "expected_sources": [
+        "enterprise_storage.txt",
+        "benchmark_report.txt"
+      ],
+      "retrieved_chunk_count": 2,
+      "citations_count": 2,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 1.0
+      },
+      "grounding_metrics": {
+        "grounding_score": 0.0,
+        "supported_claim_ratio": 0.0,
+        "unsupported_claim_ratio": 1.0
+      },
+      "concept_coverage": 0.6,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 529.19,
+      "timings": {
+        "optimizer_ms": 0.024,
+        "query_classification_ms": 0.015,
+        "query_expansion_ms": 0.04,
+        "semantic_search_ms": 486.34,
+        "bm25_ms": 0.26,
+        "fusion_ms": 0.02,
+        "cross_encoder_ms": 37.29,
+        "parent_window_ms": 0.01,
+        "compression_ms": 0.04,
+        "total_retrieval_ms": 528.25,
+        "candidate_count_before_rerank": 2,
+        "candidate_count_after_rerank": 2,
+        "final_context_chunks": 2,
+        "final_context_chars": 572
+      }
+    },
+    {
+      "id": "eval_complex_analytical_007",
+      "category": "complex_analytical",
+      "question": "Analyze the performance trade-offs between initial candidate retrieval pool size and Cross-Encoder joint-attention latency.",
+      "answerable": true,
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "retrieved_chunk_count": 1,
+      "citations_count": 1,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 1.0
+      },
+      "grounding_metrics": {
+        "grounding_score": 0.0,
+        "supported_claim_ratio": 0.0,
+        "unsupported_claim_ratio": 1.0
+      },
+      "concept_coverage": 0.6667,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 111.14,
+      "timings": {
+        "optimizer_ms": 0.079,
+        "query_classification_ms": 0.067,
+        "query_expansion_ms": 0.05,
+        "semantic_search_ms": 85.47,
+        "bm25_ms": 0.04,
+        "fusion_ms": 0.01,
+        "cross_encoder_ms": 22.41,
+        "parent_window_ms": 0.01,
+        "compression_ms": 0.02,
+        "total_retrieval_ms": 110.66,
+        "candidate_count_before_rerank": 1,
+        "candidate_count_after_rerank": 1,
+        "final_context_chunks": 1,
+        "final_context_chars": 269
+      }
+    },
+    {
+      "id": "eval_ambiguous_008",
+      "category": "ambiguous_insufficient",
+      "question": "What is the secret subterranean warp engine propulsion frequency of the enterprise flagship?",
+      "answerable": false,
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "retrieved_chunk_count": 1,
+      "citations_count": 1,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 1.0
+      },
+      "grounding_metrics": {
+        "grounding_score": 1.0,
+        "supported_claim_ratio": 1.0,
+        "unsupported_claim_ratio": 0.0
+      },
+      "concept_coverage": 1.0,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 0.0
+      },
+      "latency_ms": 97.44,
+      "timings": {
+        "optimizer_ms": 0.094,
+        "query_classification_ms": 0.085,
+        "query_expansion_ms": 0.02,
+        "semantic_search_ms": 72.64,
+        "bm25_ms": 0.07,
+        "fusion_ms": 0.01,
+        "cross_encoder_ms": 22.23,
+        "parent_window_ms": 0.01,
+        "compression_ms": 0.05,
+        "total_retrieval_ms": 97.07,
+        "candidate_count_before_rerank": 1,
+        "candidate_count_after_rerank": 1,
+        "final_context_chunks": 1,
+        "final_context_chars": 205
+      }
+    },
+    {
+      "id": "eval_ocr_derived_009",
+      "category": "ocr_derived",
+      "question": "What information was extracted via OCR from the scanned document and what was its extraction method?",
+      "answerable": true,
+      "expected_sources": [
+        "scanned_demo.pdf"
+      ],
+      "retrieved_chunk_count": 2,
+      "citations_count": 2,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 0.5
+      },
+      "grounding_metrics": {
+        "grounding_score": 1.0,
+        "supported_claim_ratio": 1.0,
+        "unsupported_claim_ratio": 0.0
+      },
+      "concept_coverage": 0.5,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 57.73,
+      "timings": {
+        "optimizer_ms": 0.054,
+        "query_classification_ms": 0.046,
+        "query_expansion_ms": 0.02,
+        "semantic_search_ms": 19.41,
+        "bm25_ms": 0.15,
+        "fusion_ms": 0.01,
+        "cross_encoder_ms": 34.93,
+        "parent_window_ms": 0.02,
+        "compression_ms": 0.11,
+        "total_retrieval_ms": 56.88,
+        "candidate_count_before_rerank": 2,
+        "candidate_count_after_rerank": 2,
+        "final_context_chunks": 2,
+        "final_context_chars": 681
+      }
+    },
+    {
+      "id": "eval_page_specific_010",
+      "category": "page_specific",
+      "question": "What is the heliosphere and how is it created according to page 4 of the solar system guide?",
+      "answerable": true,
+      "expected_sources": [
+        "ss-high (1).pdf"
+      ],
+      "retrieved_chunk_count": 6,
+      "citations_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": 1.0,
+        "recall_at_k": 1.0,
+        "mrr": 1.0,
+        "source_accuracy": 1.0,
+        "page_accuracy": 0.4
+      },
+      "grounding_metrics": {
+        "grounding_score": 1.0,
+        "supported_claim_ratio": 1.0,
+        "unsupported_claim_ratio": 0.0
+      },
+      "concept_coverage": 1.0,
+      "citation_metrics": {
+        "citation_correctness": 1.0,
+        "citation_completeness": 1.0
+      },
+      "latency_ms": 5038.14,
+      "timings": {
+        "optimizer_ms": 0.086,
+        "query_classification_ms": 0.075,
+        "query_expansion_ms": 0.02,
+        "semantic_search_ms": 4681.35,
+        "bm25_ms": 0.55,
+        "fusion_ms": 0.05,
+        "cross_encoder_ms": 339.09,
+        "parent_window_ms": 0.16,
+        "compression_ms": 0.87,
+        "total_retrieval_ms": 5035.93,
+        "candidate_count_before_rerank": 18,
+        "candidate_count_after_rerank": 6,
+        "final_context_chunks": 6,
+        "final_context_chars": 4100
+      }
+    }
+  ]
+}

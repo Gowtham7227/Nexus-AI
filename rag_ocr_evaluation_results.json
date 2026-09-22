@@ -1,0 +1,127 @@
+{
+  "timestamp": "2026-09-21T16:34:47Z",
+  "ocr_results": [
+    {
+      "id": "ocr_1_exact",
+      "type": "Exact OCR Text Lookup",
+      "question": "What is the text extraction method used for the scanned document?",
+      "answer": "The text extraction method used for the scanned document is OCR [1].",
+      "citations_count": 1,
+      "citations": [
+        {
+          "id": 1,
+          "filename": "scanned_demo.pdf",
+          "page_number": 1,
+          "chunk_id": "scanned_demo.pdf::0",
+          "relevance": 0.971,
+          "extraction_method": "ocr",
+          "snippet": "NexusAI Scanned Document Demonstration. Text extraction method is OCR. Scanned document pages are processed using Local OCR when native text quality is insufficient. System calibra"
+        }
+      ],
+      "grounding_score": 1.0,
+      "retrieval_latency_ms": 92.55,
+      "total_latency_ms": 13201.47,
+      "is_grounded": true,
+      "extraction_methods": [
+        "ocr"
+      ],
+      "pages_cited": [
+        1
+      ]
+    },
+    {
+      "id": "ocr_2_conceptual",
+      "type": "Conceptual OCR Processing",
+      "question": "How are scanned document pages processed when native text quality is insufficient?",
+      "answer": "Scanned document pages are processed using Local OCR when native text quality is insufficient [1].",
+      "citations_count": 1,
+      "citations": [
+        {
+          "id": 1,
+          "filename": "scanned_demo.pdf",
+          "page_number": 1,
+          "chunk_id": "scanned_demo.pdf::0",
+          "relevance": 0.929,
+          "extraction_method": "ocr",
+          "snippet": "NexusAI Scanned Document Demonstration. Text extraction method is OCR. Scanned document pages are processed using Local OCR when native text quality is insufficient. System calibra"
+        }
+      ],
+      "grounding_score": 1.0,
+      "retrieval_latency_ms": 80.58,
+      "total_latency_ms": 13717.83,
+      "is_grounded": true,
+      "extraction_methods": [
+        "ocr"
+      ],
+      "pages_cited": [
+        1
+      ]
+    },
+    {
+      "id": "ocr_3_page_specific",
+      "type": "Page-Specific OCR Question",
+      "question": "What calibration records and metrics are verified on page 1 of the scanned demo document?",
+      "answer": "Based on the uploaded document, the items verified on page 1 are:\n\n* System calibration records [1]\n* Sensor voltage levels [1]\n* Operational metrics [1]",
+      "citations_count": 1,
+      "citations": [
+        {
+          "id": 1,
+          "filename": "scanned_demo.pdf",
+          "page_number": 1,
+          "chunk_id": "scanned_demo.pdf::0",
+          "relevance": 0.8904,
+          "extraction_method": "ocr",
+          "snippet": "NexusAI Scanned Document Demonstration. Scanned document pages are processed using Local OCR when native text quality is insufficient. System calibration records, sensor voltage le"
+        }
+      ],
+      "grounding_score": 1.0,
+      "retrieval_latency_ms": 75.75,
+      "total_latency_ms": 2038.69,
+      "is_grounded": true,
+      "extraction_methods": [
+        "ocr"
+      ],
+      "pages_cited": [
+        1
+      ]
+    },
+    {
+      "id": "ocr_4_unsupported",
+      "type": "Unsupported OCR Question",
+      "question": "What is the quantum hyperdrive core frequency mentioned in the scanned document?",
+      "answer": "I couldn't find that information in the uploaded document.",
+      "citations_count": 2,
+      "citations": [
+        {
+          "id": 1,
+          "filename": "scanned_demo.pdf",
+          "page_number": 1,
+          "chunk_id": "scanned_demo.pdf::0",
+          "relevance": 0.1506,
+          "extraction_method": "ocr",
+          "snippet": "NexusAI Scanned Document Demonstration. Text extraction method is OCR. Scanned document pages are processed using Local OCR when native text quality is insufficient. System calibra"
+        },
+        {
+          "id": 2,
+          "filename": "scanned_demo.pdf",
+          "page_number": 2,
+          "chunk_id": "scanned_demo.pdf::1",
+          "relevance": 0.0269,
+          "extraction_method": "ocr",
+          "snippet": "Page 2: Maintenance schedule and emergency shutdown procedure for scanned optical sensors and solar inverters."
+        }
+      ],
+      "grounding_score": 1.0,
+      "retrieval_latency_ms": 70.97,
+      "total_latency_ms": 7843.49,
+      "is_grounded": true,
+      "extraction_methods": [
+        "ocr"
+      ],
+      "pages_cited": [
+        1,
+        2
+      ]
+    }
+  ]
+}

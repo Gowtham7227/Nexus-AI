@@ -1,0 +1,381 @@
+{
+  "timestamp": "2026-09-21T16:03:48Z",
+  "framework_version": "1.0.0",
+  "overall": {
+    "total_cases": 10,
+    "successful_cases": 9,
+    "failed_cases": 1,
+    "hit_at_k": 0.9,
+    "mrr": 0.9,
+    "average_grounding": 0.875,
+    "average_citation_correctness": 0.9,
+    "average_latency_ms": 18347.76
+  },
+  "categories": {
+    "simple_factual": {
+      "case_id": "eval_simple_factual_001",
+      "question": "What is the primary mission objective of NexusAI and its maximum upload capacity?",
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 1.0,
+      "concept_coverage": 0.0,
+      "grounding_score": 1.0,
+      "supported_claim_ratio": 1.0,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 0.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 16529.93,
+      "retrieved_chunk_count": 1,
+      "citations_count": 1
+    },
+    "exact_technical": {
+      "case_id": "eval_exact_technical_002",
+      "question": "What is the exact database table and schema used for tracking document processing status?",
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 1.0,
+      "concept_coverage": 0.0,
+      "grounding_score": 1.0,
+      "supported_claim_ratio": 1.0,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 0.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 11960.69,
+      "retrieved_chunk_count": 1,
+      "citations_count": 1
+    },
+    "conceptual": {
+      "case_id": "eval_conceptual_003",
+      "question": "Explain the zero-trust security architecture and pre-retrieval tenant isolation in NexusAI.",
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 1.0,
+      "concept_coverage": 0.0,
+      "grounding_score": 1.0,
+      "supported_claim_ratio": 1.0,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 0.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 18932.24,
+      "retrieved_chunk_count": 1,
+      "citations_count": 1
+    },
+    "procedural": {
+      "case_id": "eval_procedural_004",
+      "question": "What are the sequential steps executed during hybrid RRF retrieval and reranking?",
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 1.0,
+      "concept_coverage": 0.0,
+      "grounding_score": 1.0,
+      "supported_claim_ratio": 1.0,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 0.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 17613.14,
+      "retrieved_chunk_count": 1,
+      "citations_count": 1
+    },
+    "comparison": {
+      "case_id": "eval_comparison_005",
+      "question": "What is the difference between gas giants and ice giants according to planetary composition?",
+      "expected_sources": [
+        "ss-high (1).pdf"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 0.6,
+      "concept_coverage": 1.0,
+      "grounding_score": 1.0,
+      "supported_claim_ratio": 1.0,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 38168.51,
+      "retrieved_chunk_count": 6,
+      "citations_count": 1
+    },
+    "multi_document": {
+      "case_id": "eval_multi_document_006",
+      "question": "Compare the storage architecture in enterprise_storage.txt with the compute spec in benchmark_report.txt.",
+      "expected_sources": [
+        "enterprise_storage.txt",
+        "benchmark_report.txt"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 1.0,
+      "concept_coverage": 0.4,
+      "grounding_score": 0.75,
+      "supported_claim_ratio": 0.5,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 22004.92,
+      "retrieved_chunk_count": 2,
+      "citations_count": 2
+    },
+    "complex_analytical": {
+      "case_id": "eval_complex_analytical_007",
+      "question": "Analyze the performance trade-offs between initial candidate retrieval pool size and Cross-Encoder joint-attention latency.",
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 1.0,
+      "concept_coverage": 0.0,
+      "grounding_score": 1.0,
+      "supported_claim_ratio": 1.0,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 0.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 16916.26,
+      "retrieved_chunk_count": 1,
+      "citations_count": 1
+    },
+    "ambiguous_insufficient": {
+      "case_id": "eval_ambiguous_008",
+      "question": "What is the secret subterranean warp engine propulsion frequency of the enterprise flagship?",
+      "expected_sources": [
+        "architecture_spec.txt"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 1.0,
+      "concept_coverage": 1.0,
+      "grounding_score": 1.0,
+      "supported_claim_ratio": 1.0,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 0.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 38483.93,
+      "retrieved_chunk_count": 1,
+      "citations_count": 1
+    },
+    "ocr_derived": {
+      "case_id": "eval_ocr_derived_009",
+      "question": "What information was extracted via OCR from the scanned document and what was its extraction method?",
+      "expected_sources": [
+        "scanned_demo.pdf"
+      ],
+      "hit_at_k": 0.0,
+      "recall_at_k": 0.0,
+      "mrr": 0.0,
+      "source_accuracy": 0.0,
+      "page_accuracy": 0.0,
+      "concept_coverage": 0.5,
+      "grounding_score": 0.0,
+      "supported_claim_ratio": 0.0,
+      "unsupported_claim_ratio": 1.0,
+      "citation_precision": 0.0,
+      "citation_recall": 0.0,
+      "citation_correctness": 0.0,
+      "latency_ms": 2.0,
+      "retrieved_chunk_count": 0,
+      "citations_count": 0
+    },
+    "page_specific": {
+      "case_id": "eval_page_specific_010",
+      "question": "What is the heliosphere and how is it created according to page 4 of the solar system guide?",
+      "expected_sources": [
+        "ss-high (1).pdf"
+      ],
+      "hit_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "source_accuracy": 1.0,
+      "page_accuracy": 0.4,
+      "concept_coverage": 1.0,
+      "grounding_score": 1.0,
+      "supported_claim_ratio": 1.0,
+      "unsupported_claim_ratio": 0.0,
+      "citation_precision": 1.0,
+      "citation_recall": 1.0,
+      "citation_correctness": 1.0,
+      "latency_ms": 2866.0,
+      "retrieved_chunk_count": 6,
+      "citations_count": 2
+    }
+  },
+  "live_tests": [
+    {
+      "question": "What is the difference between gas giants and ice giants?",
+      "title": "Gas vs. Ice Giants",
+      "answer_generated": "Based on the provided document, the differences between gas giants and ice giants include:\n\n* **Planets included:** Jupiter and Saturn are known as gas giants, while the more distant Uranus and Neptune are called ice giants [1], [2].\n* **Composition:** Gas giants are composed mostly of hydrogen and helium, whereas ice giants are composed mostly of water, ammonia, and methane, featuring icy mantles around their cores [1].",
+      "citations_generated": [
+        {
+          "id": 1,
+          "filename": "ss-high (1).pdf",
+          "page_number": 4,
+          "chunk_id": "ss-high (1).pdf::13",
+          "relevance": 0.8819,
+          "extraction_method": "native",
+          "snippet": "Jupiter and Saturn \u2014 are known as gas giants; the more distant Uranus and Neptune are called ice giants. Earth\u2019s atmosphere is primarily nitrogen and oxygen. Mer- cury has a very t"
+        },
+        {
+          "id": 2,
+          "filename": "ss-high (1).pdf",
+          "page_number": 4,
+          "chunk_id": "ss-high (1).pdf::12",
+          "relevance": 0.1946,
+          "extraction_method": "native",
+          "snippet": "eventually discovered: Uranus (in 1781) and Neptune (1846). The largest known asteroid, Ceres, was discovered between Mars and Jupiter in 1801. Originally classified as a planet, C"
+        }
+      ],
+      "cited_documents": [
+        "ss-high (1).pdf"
+      ],
+      "cited_pages": [
+        4,
+        4
+      ],
+      "grounding_score": 1.0,
+      "supported_claims": 2,
+      "unsupported_claims": 0,
+      "total_claims": 2,
+      "retrieval_latency_ms": 822.91,
+      "total_latency_ms": 6701.76
+    },
+    {
+      "question": "What is the heliosphere?",
+      "title": "Heliosphere Definition",
+      "answer_generated": "The heliosphere is an enormous bubble formed by the area of the Sun's influence that stretches far beyond the planets [2]. This giant bubble is created by the solar wind, which is a stream of charged gas blowing outward from the Sun [1]. As the Sun orbits the center of the Milky Way, the heliosphere moves and creates a bow shock ahead of itself in interstellar space as it crashes into interstellar gases [1].",
+      "citations_generated": [
+        {
+          "id": 1,
+          "filename": "ss-high (1).pdf",
+          "page_number": 4,
+          "chunk_id": "ss-high (1).pdf::16",
+          "relevance": 0.8927,
+          "extraction_method": "native",
+          "snippet": "called the heliosphere. The enormous bubble of the heliosphere is created by the solar wind, a stream of charged gas blowing outward from the Sun. As the Sun orbits the center of t"
+        },
+        {
+          "id": 2,
+          "filename": "ss-high (1).pdf",
+          "page_number": 4,
+          "chunk_id": "ss-high (1).pdf::15",
+          "relevance": 0.607,
+          "extraction_method": "native",
+          "snippet": "Saturn was thought to be the only planet with rings. NASA\u2019s Voyager missions to the outer planets showed that Jupiter, Most of the planets have magnetic fields that extend into spa"
+        }
+      ],
+      "cited_documents": [
+        "ss-high (1).pdf"
+      ],
+      "cited_pages": [
+        4,
+        4
+      ],
+      "grounding_score": 1.0,
+      "supported_claims": 3,
+      "unsupported_claims": 0,
+      "total_claims": 3,
+      "retrieval_latency_ms": 341.32,
+      "total_latency_ms": 19790.62
+    }
+  ],
+  "unsupported_test": {
+    "question": "What is the secret quantum core warp propulsion frequency of the Voyager spacecraft?",
+    "answer_generated": "I couldn't find that information in the uploaded document.",
+    "citations_generated": [
+      {
+        "id": 1,
+        "filename": "ss-high (1).pdf",
+        "page_number": 4,
+        "chunk_id": "ss-high (1).pdf::17",
+        "relevance": 0.1787,
+        "extraction_method": "native",
+        "snippet": "2003. In December 2004, scientists confirmed that Voyager 1 had crossed the termination shock at about 94 AU, approxi- mately 13 billion kilometers (8.7 billion miles) from the Sun"
+      },
+      {
+        "id": 2,
+        "filename": "ss-high (1).pdf",
+        "page_number": 6,
+        "chunk_id": "ss-high (1).pdf::24",
+        "relevance": 0.15,
+        "extraction_method": "native",
+        "snippet": "About one million Earths could fit inside the Sun. It is held to- and temperature at its core. The Sun has six regions \u2014 the core, the radiative zone, and the convective zone in th"
+      },
+      {
+        "id": 3,
+        "filename": "ss-high (1).pdf",
+        "page_number": 8,
+        "chunk_id": "ss-high (1).pdf::37",
+        "relevance": 0.1462,
+        "extraction_method": "native",
+        "snippet": "surface, ending the period of volcanic activity. Mercury is the second densest planet after Earth, with a large metallic core having a radius of 1,800 to 1,900 kilometers (1,100 to"
+      },
+      {
+        "id": 4,
+        "filename": "ss-high (1).pdf",
+        "page_number": 4,
+        "chunk_id": "ss-high (1).pdf::13",
+        "relevance": 0.1398,
+        "extraction_method": "native",
+        "snippet": "Jupiter and Saturn \u2014 are known as gas giants; the more distant Earth\u2019s atmosphere is primarily nitrogen and oxygen. Mer- atmosphere of mainly carbon dioxide. Mars\u2019 carbon dioxide a"
+      },
+      {
+        "id": 5,
+        "filename": "ss-high (1).pdf",
+        "page_number": 32,
+        "chunk_id": "ss-high (1).pdf::168",
+        "relevance": 0.1375,
+        "extraction_method": "native",
+        "snippet": "sunlight during each 20-year-long season. Voyager 2, the only spacecraft to visit Uranus, imaged a bland- looking sphere in 1986. When Voyager flew by, the south pole of Uranus poi"
+      },
+      {
+        "id": 6,
+        "filename": "ss-high (1).pdf",
+        "page_number": 4,
+        "chunk_id": "ss-high (1).pdf::16",
+        "relevance": 0.1374,
+        "extraction_method": "native",
+        "snippet": "called the heliosphere. The enormous bubble of the heliosphere is created by the solar wind, a stream of charged gas blowing outward from the Sun. As the Sun orbits the center of t"
+      }
+    ],
+    "has_fabricated_citations": true,
+    "is_safe_insufficient_response": true,
+    "grounding_score": 1.0,
+    "is_insufficient_evidence": true,
+    "retrieval_latency_ms": 387.92,
+    "total_latency_ms": 5152.1
+  }
+}

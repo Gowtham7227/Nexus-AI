@@ -9,6 +9,8 @@ from vector_store import get_vector_store, embedding_model
 from bm25_retriever import get_or_build_bm25_index
 from privacy_scanner import PrivacyScanner, PromptInjectionShield, OutputPrivacyGuard
 from audit_logger import log_privacy_event
+from rag_optimizer import AdaptiveRAGOptimizer, OptimizerStrategy
+from rag_evaluation import SourceCitationManager
 
 
 # ============================================================
@@ -82,8 +84,12 @@ class QueryExpander:
     """Generates targeted retrieval query variants without modifying original user intent."""
 
     @staticmethod
-    def expand(question: str, query_info: Dict[str, Any]) -> List[str]:
+    def expand(question: str, query_info: Dict[str, Any], strategy: Optional[OptimizerStrategy] = None) -> List[str]:
         if not RAG_QUERY_EXPANSION_ENABLED:
+            return [question]
+
+        # Respect strategy decisions if provided
+        if strategy is not None and not strategy.query_expansion:
             return [question]
 
         q = question.strip()
@@ -98,25 +104,33 @@ class QueryExpander:
         keywords = [w for w in words if w not in stopwords and len(w) >= 2]
         keyword_str = " ".join(keywords)
 
-        if keyword_str and keyword_str != q_lower:
+        if keyword_str and keyword_str != q_lower and len(words) <= 12:
             queries.append(keyword_str)
 
-        if qtype == "overview":
-            queries.extend([
-                "main purpose objective summary",
-                "executive summary overview conclusion",
-                "key topics important findings",
-            ])
-        elif qtype == "comparison":
-            queries.extend([
-                "document main topic and findings",
-                "similarities and common points",
-                "differences and comparative analysis",
-            ])
-        elif qtype == "calculation":
-            queries.append(f"{keyword_str} total amount number statistics")
-        elif qtype == "why_how":
-            queries.append(f"{keyword_str} reason methodology approach mechanism")
+        # Allow multi-query generation when strategy permits (or default)
+        allow_multi = strategy.multi_query if strategy is not None else True
+
+        if allow_multi:
+            if qtype == "overview":
+                if keyword_str:
+                    queries.append(f"{keyword_str} summary overview")
+                else:
+                    queries.append("executive summary overview key findings")
+            elif qtype == "comparison":
+                if keyword_str:
+                    queries.append(f"{keyword_str} comparison difference")
+                    queries.append(f"{keyword_str} similarities common points")
+                else:
+                    queries.extend([
+                        "similarities and common points",
+                        "differences and comparative analysis",
+                    ])
+            elif qtype == "calculation":
+                if keyword_str:
+                    queries.append(f"{keyword_str} total amount number statistics")
+            elif qtype in ("why_how", "complex_analytical"):
+                if keyword_str:
+                    queries.append(f"{keyword_str} root cause methodology analysis")
 
         # Deduplicate while preserving order
         unique_queries = []
@@ -124,7 +138,7 @@ class QueryExpander:
             if query_item and query_item not in unique_queries:
                 unique_queries.append(query_item)
 
-        return unique_queries[:4]
+        return unique_queries[:3]
 
 
 # ============================================================
@@ -161,7 +175,10 @@ def get_cross_encoder():
             print(f"Model: {RAG_RERANKER_MODEL}")
             print("=" * 70)
             from sentence_transformers import CrossEncoder
-            _cross_encoder_model = CrossEncoder(RAG_RERANKER_MODEL)
+            try:
+                _cross_encoder_model = CrossEncoder(RAG_RERANKER_MODEL, automodel_args={"local_files_only": True})
+            except Exception:
+                _cross_encoder_model = CrossEncoder(RAG_RERANKER_MODEL)
             print("✅ Local Cross-Encoder loaded and ready")
             return _cross_encoder_model
         except Exception as ce_err:
@@ -250,11 +267,12 @@ class NexusAdvancedRAG:
         Execute full Privacy-Aware Advanced RAG retrieval across authorized documents.
         Security Order:
         1. User Authorization & Ownership Gate (Pre-retrieval)
-        2. Multi-Query Hybrid Retrieval (Chroma + BM25)
-        3. Global Candidate Pool Aggregation
-        4. TRUE Transformer Cross-Encoder Reranker
-        5. Contextual Expansion & Sentence Compression
-        6. Prompt Injection Shield & Untrusted Data XML Isolation
+        2. Adaptive RAG Optimizer Strategy Selection (<5-10ms)
+        3. Adaptive Multi-Query Hybrid Retrieval (Chroma + BM25)
+        4. Global Candidate Pool Aggregation & Dynamic Weighted Fusion
+        5. TRUE Transformer Cross-Encoder Reranker
+        6. Contextual Expansion & Adaptive Sentence Compression
+        7. Prompt Injection Shield & Untrusted Data XML Isolation
         """
         t_start = time.time()
         if not filenames:
@@ -263,20 +281,32 @@ class NexusAdvancedRAG:
                 "evidence_quality": "Low",
                 "top_chunks": [],
                 "query_info": {},
+                "strategy": {},
+                "timings": {"total_retrieval_ms": 0.0},
                 "injection_detected": False,
                 "filenames": [],
             }
 
-        # 1. Query Analysis & Expansion
+        # 1. Adaptive RAG Optimizer Strategy Selection
+        t_opt_start = time.time()
+        strategy = AdaptiveRAGOptimizer.optimize(question, filenames, user_id=user_id)
+        optimizer_ms = (time.time() - t_opt_start) * 1000.0
+
+        # 2. Query Analysis & Adaptive Expansion
+        t_exp_start = time.time()
         query_info = QueryUnderstanding.analyze(question)
-        expanded_queries = QueryExpander.expand(question, query_info)
+        expanded_queries = QueryExpander.expand(question, query_info, strategy=strategy)
+        query_expansion_ms = (time.time() - t_exp_start) * 1000.0
         qtype = query_info["question_type"]
 
-        target_top_k = RAG_COMPARISON_K if qtype == "comparison" else RAG_FINAL_K
+        target_top_k = strategy.final_target_k
         global_candidate_pool: List[Dict[str, Any]] = []
         doc_chunks_cache: Dict[str, List[Dict[str, Any]]] = {}
 
         vector_store = get_vector_store()
+        semantic_search_ms = 0.0
+        bm25_ms = 0.0
+        fusion_ms = 0.0
 
         for filename in filenames:
             all_doc_chunks = cls.get_document_chunks(filename, user_id=user_id)
@@ -285,15 +315,20 @@ class NexusAdvancedRAG:
             doc_chunks_cache[filename] = all_doc_chunks
 
             # Build or retrieve BM25 index for this document
+            t_bm_build = time.time()
             bm25_index = get_or_build_bm25_index(filename, all_doc_chunks)
+            bm25_ms += (time.time() - t_bm_build) * 1000.0
 
-            # A. Semantic Search across all expanded query variants
+            # A. Semantic Search across expanded query variants with adaptive initial_top_k
+            t_sem_start = time.time()
             semantic_candidates: Dict[int, Dict[str, Any]] = {}
+            k_search = min(strategy.initial_top_k, len(all_doc_chunks))
+
             for q_variant in expanded_queries:
                 try:
                     chroma_res = vector_store.similarity_search_with_relevance_scores(
                         q_variant,
-                        k=min(RAG_INITIAL_K, len(all_doc_chunks)),
+                        k=k_search,
                         filter={"filename": filename},
                     )
                     for doc_obj, score in chroma_res:
@@ -313,14 +348,14 @@ class NexusAdvancedRAG:
                     try:
                         raw_docs = vector_store.similarity_search(
                             q_variant,
-                            k=min(RAG_INITIAL_K, len(all_doc_chunks)),
+                            k=k_search,
                             filter={"filename": filename},
                         )
                         for rank_idx, doc_obj in enumerate(raw_docs):
                             meta = doc_obj.metadata or {}
                             c_idx = meta.get("chunk_index", rank_idx)
                             approx_score = 1.0 / (rank_idx + 1.5)
-                            if c_idx not in semantic_candidates:
+                            if c_idx not in semantic_candidates or approx_score > semantic_candidates[c_idx]["semantic_score"]:
                                 semantic_candidates[c_idx] = {
                                     "id": f"{filename}::{c_idx}",
                                     "text": doc_obj.page_content,
@@ -330,13 +365,39 @@ class NexusAdvancedRAG:
                                     "metadata": meta,
                                 }
                     except Exception as fallback_err:
-                        print(f"⚠️ Chroma search error on {filename}:", str(fallback_err))
+                        # Resilient in-memory embedding fallback for self-healing vector desynchronization
+                        try:
+                            q_emb = embedding_model.embed_query(q_variant)
+                            q_norm = math.sqrt(sum(x * x for x in q_emb))
+                            scores = []
+                            for ch_item in all_doc_chunks:
+                                d_emb = embedding_model.embed_query(ch_item["text"][:300])
+                                d_norm = math.sqrt(sum(x * x for x in d_emb))
+                                dot = sum(a * b for a, b in zip(q_emb, d_emb))
+                                cos_sim = (dot / (q_norm * d_norm)) if (q_norm * d_norm) > 0 else 0.0
+                                scores.append((ch_item, max(0.0, cos_sim)))
+                            scores.sort(key=lambda x: x[1], reverse=True)
+                            for ch_item, sim_score in scores[:k_search]:
+                                c_idx = ch_item.get("chunk_index", 0)
+                                if c_idx not in semantic_candidates or sim_score > semantic_candidates[c_idx]["semantic_score"]:
+                                    semantic_candidates[c_idx] = {
+                                        "id": f"{filename}::{c_idx}",
+                                        "text": ch_item["text"],
+                                        "filename": filename,
+                                        "chunk_index": c_idx,
+                                        "semantic_score": sim_score,
+                                        "metadata": ch_item.get("metadata", {}),
+                                    }
+                        except Exception as mem_err:
+                            pass
+            semantic_search_ms += (time.time() - t_sem_start) * 1000.0
 
-            # B. Lexical BM25 Search across expanded queries
+            # B. Lexical BM25 Search across expanded queries with adaptive initial_top_k
+            t_bm_start = time.time()
             lexical_candidates: Dict[int, float] = {}
             max_bm25 = 1.0
             for q_variant in expanded_queries:
-                bm25_matches = bm25_index.search(q_variant, k=RAG_INITIAL_K)
+                bm25_matches = bm25_index.search(q_variant, k=strategy.initial_top_k)
                 for chunk_item, score in bm25_matches:
                     c_idx = chunk_item.get("chunk_index", 0)
                     if score > max_bm25:
@@ -348,8 +409,10 @@ class NexusAdvancedRAG:
             normalized_bm25: Dict[int, float] = {}
             for c_idx, raw_score in lexical_candidates.items():
                 normalized_bm25[c_idx] = min(1.0, raw_score / max_bm25) if max_bm25 > 0 else 0.0
+            bm25_ms += (time.time() - t_bm_start) * 1000.0
 
-            # C. Hybrid Score Merging & Fusion
+            # C. Dynamic Weighted Score Merging & Fusion
+            t_fus_start = time.time()
             all_candidate_indices = set(semantic_candidates.keys()).union(set(normalized_bm25.keys()))
 
             for c_idx in all_candidate_indices:
@@ -364,7 +427,8 @@ class NexusAdvancedRAG:
                 s_score = semantic_candidates.get(c_idx, {}).get("semantic_score", 0.0)
                 l_score = normalized_bm25.get(c_idx, 0.0)
 
-                hybrid_score = (RAG_SEMANTIC_WEIGHT * s_score) + (RAG_LEXICAL_WEIGHT * l_score)
+                # Use dynamic weights determined by AdaptiveRAGOptimizer
+                hybrid_score = (strategy.semantic_weight * s_score) + (strategy.bm25_weight * l_score)
 
                 global_candidate_pool.append({
                     "id": f"{filename}::{c_idx}",
@@ -378,35 +442,61 @@ class NexusAdvancedRAG:
                     "hybrid_score": hybrid_score,
                     "metadata": chunk_record.get("metadata", {}) if chunk_record else {},
                 })
+            fusion_ms += (time.time() - t_fus_start) * 1000.0
 
         if not global_candidate_pool:
+            total_elapsed_ms = (time.time() - t_start) * 1000.0
             return {
                 "formatted_context": "",
                 "evidence_quality": "Low",
                 "top_chunks": [],
+                "citations": [],
                 "query_info": query_info,
+                "strategy": strategy.to_dict(),
+                "timings": {
+                    "optimizer_ms": round(optimizer_ms, 2),
+                    "query_expansion_ms": round(query_expansion_ms, 2),
+                    "semantic_search_ms": round(semantic_search_ms, 2),
+                    "bm25_ms": round(bm25_ms, 2),
+                    "fusion_ms": round(fusion_ms, 2),
+                    "cross_encoder_ms": 0.0,
+                    "compression_ms": 0.0,
+                    "total_retrieval_ms": round(total_elapsed_ms, 2),
+                },
                 "injection_detected": False,
                 "filenames": filenames,
             }
 
         # D. GLOBAL TRUE CROSS-ENCODER RERANKING
-        # Merged candidate pool from all authorized documents is reranked together
-        reranked_pool = cls._rerank_candidates(question, global_candidate_pool)
+        # Pre-sort by hybrid score and send top rerank_top_k candidates to Cross-Encoder
+        global_candidate_pool.sort(key=lambda x: x.get("hybrid_score", 0.0), reverse=True)
+        candidates_for_reranking = global_candidate_pool[:strategy.rerank_top_k]
 
-        # Apply candidate pool cutoff
-        pool_cutoff = target_top_k * (len(filenames) if qtype == "comparison" else 1)
-        top_candidates = reranked_pool[:pool_cutoff]
+        t_ce_start = time.time()
+        reranked_pool = cls._rerank_candidates(question, candidates_for_reranking)
+        cross_encoder_ms = (time.time() - t_ce_start) * 1000.0
+
+        # Apply target top-k candidate pool cutoff
+        top_candidates = reranked_pool[:target_top_k]
 
         # E. Context Window Expansion (Parent-Child proximity expansion)
+        t_win_start = time.time()
         expanded_candidates: List[Dict[str, Any]] = []
         for c in top_candidates:
             fname = c["filename"]
             all_chunks = doc_chunks_cache.get(fname, [])
             expanded = cls._expand_single_chunk_window(c, all_chunks)
             expanded_candidates.append(expanded)
+        parent_window_ms = (time.time() - t_win_start) * 1000.0
 
-        # F. Contextual Compression (remove noise while preserving facts)
-        final_chunks = cls._contextual_compression(expanded_candidates, question)
+        # F. Adaptive Contextual Compression
+        t_comp_start = time.time()
+        final_chunks = cls._contextual_compression(
+            expanded_candidates,
+            question,
+            compression_level=strategy.compression_level,
+        )
+        compression_ms = (time.time() - t_comp_start) * 1000.0
 
         # G. Prompt Injection Shield & Untrusted Data Isolation
         injection_threats = PromptInjectionShield.scan_for_injection(question)
@@ -423,9 +513,9 @@ class NexusAdvancedRAG:
         # H. Compute Evidence Quality
         evidence_quality = cls._calculate_evidence_quality(final_chunks, query_info)
 
-        elapsed_ms = (time.time() - t_start) * 1000
+        total_elapsed_ms = (time.time() - t_start) * 1000.0
         reranker_type = final_chunks[0].get("reranker_type", "Cross-Encoder (Transformer)") if final_chunks else "none"
-        print(f"⚡ [ADVANCED RAG RETRIEVAL] Query: '{question[:50]}...' | Docs: {len(filenames)} | Chunks: {len(final_chunks)} | Quality: {evidence_quality} | Reranker: {reranker_type} | Time: {elapsed_ms:.1f}ms")
+        print(f"⚡ [ADVANCED RAG RETRIEVAL] Query: '{question[:45]}...' | Strategy: {strategy.query_type} ({strategy.complexity}) | Docs: {len(filenames)} | Chunks: {len(final_chunks)} | Quality: {evidence_quality} | Reranker: {reranker_type} | Time: {total_elapsed_ms:.1f}ms (Opt: {optimizer_ms:.1f}ms, CE: {cross_encoder_ms:.1f}ms)")
 
         # Record structured audit event
         log_privacy_event(
@@ -437,14 +527,42 @@ class NexusAdvancedRAG:
             redaction_applied=False,
             model_used="gemini",
             evidence_quality=evidence_quality,
-            details={"chunk_count": len(final_chunks), "elapsed_ms": round(elapsed_ms, 2), "reranker": reranker_type},
+            details={
+                "chunk_count": len(final_chunks),
+                "elapsed_ms": round(total_elapsed_ms, 2),
+                "optimizer_strategy": strategy.to_dict(),
+                "reranker": reranker_type,
+            },
         )
+
+        timings = {
+            "optimizer_ms": round(optimizer_ms, 3),
+            "query_classification_ms": round(strategy.decision_ms, 3),
+            "query_expansion_ms": round(query_expansion_ms, 2),
+            "semantic_search_ms": round(semantic_search_ms, 2),
+            "bm25_ms": round(bm25_ms, 2),
+            "fusion_ms": round(fusion_ms, 2),
+            "cross_encoder_ms": round(cross_encoder_ms, 2),
+            "parent_window_ms": round(parent_window_ms, 2),
+            "compression_ms": round(compression_ms, 2),
+            "total_retrieval_ms": round(total_elapsed_ms, 2),
+            "candidate_count_before_rerank": len(global_candidate_pool),
+            "candidate_count_after_rerank": len(top_candidates),
+            "final_context_chunks": len(final_chunks),
+            "final_context_chars": len(formatted_context),
+        }
+
+        # Build trusted server-side source citations
+        citations = SourceCitationManager.build_citations(final_chunks)
 
         return {
             "formatted_context": formatted_context,
             "evidence_quality": evidence_quality,
             "top_chunks": final_chunks,
+            "citations": citations,
             "query_info": query_info,
+            "strategy": strategy.to_dict(),
+            "timings": timings,
             "injection_detected": has_injection,
             "filenames": filenames,
         }
@@ -547,7 +665,7 @@ class NexusAdvancedRAG:
         }
 
     @classmethod
-    def _contextual_compression(cls, chunks: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    def _contextual_compression(cls, chunks: List[Dict[str, Any]], query: str, compression_level: str = "standard") -> List[Dict[str, Any]]:
         """Filter out duplicate boilerplate sentences while preserving numbers, facts, and entities."""
         if not chunks or not RAG_COMPRESSION_ENABLED:
             return chunks
@@ -557,16 +675,26 @@ class NexusAdvancedRAG:
 
         for c in chunks:
             raw_text = c.get("text", "").strip()
-            lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+            if compression_level == "broad":
+                # Broad mode preserves full chunk context for complex reasoning/comparison
+                compressed.append(c)
+                continue
 
+            lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
             meaningful_lines = []
             for line in lines:
                 has_digits = bool(re.search(r"\d", line))
                 is_bullet = bool(re.match(r"^(?:[-*•#]|\d+[.)])", line))
                 has_keywords = bool(set(re.findall(r"[A-Za-z0-9]+", line.lower())).intersection(q_tokens))
 
-                if has_digits or is_bullet or has_keywords or len(line) > 60:
-                    meaningful_lines.append(line)
+                if compression_level == "strict":
+                    # Strict mode for simple factual queries: only keep high-signal lines
+                    if has_digits or is_bullet or has_keywords:
+                        meaningful_lines.append(line)
+                else:
+                    # Standard mode
+                    if has_digits or is_bullet or has_keywords or len(line) > 60:
+                        meaningful_lines.append(line)
 
             final_text = "\n".join(meaningful_lines) if meaningful_lines else raw_text
             compressed.append({

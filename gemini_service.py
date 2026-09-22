@@ -29,17 +29,17 @@ _client = None
 # Verified active models on Gemini API v1beta / google-genai SDK
 # (excluding models known to return 404 NOT_FOUND such as 1.5, 2.0, 2.5)
 VERIFIED_FALLBACK_MODELS = [
+    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
     "gemini-3-flash-preview",
-    "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
 ]
 
 # Primary model from environment
-DEFAULT_ENV_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip()
+DEFAULT_ENV_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
 if not DEFAULT_ENV_MODEL or any(legacy in DEFAULT_ENV_MODEL for legacy in ["1.5", "2.0", "2.5"]):
-    DEFAULT_ENV_MODEL = "gemini-3.6-flash"
+    DEFAULT_ENV_MODEL = "gemini-3.5-flash-lite"
 
 # Construct deduplicated candidate model fallback chain
 CANDIDATE_MODELS: List[str] = []
@@ -189,4 +189,89 @@ def test_direct_gemini() -> Tuple[bool, str]:
     if text and text.strip():
         return True, text.strip()
     return False, error or "No response received"
+
+
+def generate_gemini_stream(
+    contents: str,
+    config: Optional[object] = None,
+    max_output_tokens: Optional[int] = None,
+    label: str = "GeminiStream",
+):
+    """
+    Progressively yields text token chunks via Google GenAI SDK generate_content_stream.
+    """
+    global CURRENT_MODEL
+
+    if not GEMINI_API_KEY:
+        yield "Cloud AI is unavailable: Gemini API key is not configured in .env."
+        return
+
+    client = get_gemini_client()
+    if not client:
+        yield "Cloud AI is unavailable: Failed to initialize Google GenAI client."
+        return
+
+    afc_disabled = (
+        types.AutomaticFunctionCallingConfig(disable=True)
+        if types and hasattr(types, "AutomaticFunctionCallingConfig")
+        else None
+    )
+
+    gen_config = config
+    if gen_config is None:
+        if types:
+            gen_config = types.GenerateContentConfig(
+                temperature=0.3,
+                max_output_tokens=max_output_tokens or 1500,
+                automatic_function_calling=afc_disabled,
+            )
+    else:
+        if hasattr(gen_config, "automatic_function_calling") and gen_config.automatic_function_calling is None:
+            try:
+                gen_config.automatic_function_calling = afc_disabled
+            except Exception:
+                pass
+
+    candidate_models = [CURRENT_MODEL] if CURRENT_MODEL else []
+    for m in CANDIDATE_MODELS:
+        if m not in candidate_models:
+            candidate_models.append(m)
+
+    t_start = time.perf_counter()
+    has_tokens = False
+
+    for model_name in candidate_models:
+        try:
+            response_stream = client.models.generate_content_stream(
+                model=model_name,
+                contents=contents,
+                config=gen_config,
+            )
+
+            for chunk in response_stream:
+                chunk_text = getattr(chunk, "text", "") or ""
+                if not chunk_text and hasattr(chunk, "candidates") and chunk.candidates:
+                    c0 = chunk.candidates[0]
+                    if hasattr(c0, "content") and c0.content and hasattr(c0.content, "parts") and c0.content.parts:
+                        chunk_text = "".join([p.text for p in c0.content.parts if hasattr(p, "text") and p.text])
+                if chunk_text:
+                    has_tokens = True
+                    yield chunk_text
+
+            elapsed = time.perf_counter() - t_start
+            print(f"[SUCCESS] [{label}] Stream completed via model '{model_name}' in {elapsed:.2f}s")
+            CURRENT_MODEL = model_name
+            return
+
+        except Exception as e:
+            elapsed = time.perf_counter() - t_start
+            print(f"[ERROR] [{label}] Stream failed via model '{model_name}' after {elapsed:.2f}s: {type(e).__name__} - {e}")
+            if has_tokens:
+                # If we already yielded tokens, do not attempt to stream from a different model mid-stream
+                return
+            # If no tokens have been yielded yet, try next candidate model
+            continue
+
+    if not has_tokens:
+        yield "Gemini API is temporarily unavailable. Please try again shortly."
 

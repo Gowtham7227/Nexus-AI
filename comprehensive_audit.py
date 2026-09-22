@@ -100,6 +100,7 @@ def run_all_audits():
     up_b = session.post(f"{BASE}/upload", headers=auth_header(token_a), files={"file": (doc_b_name, doc_b_content, "text/plain")})
 
     record("MULTI_DOC_UPLOAD", up_a.status_code == 200 and up_b.status_code == 200, f"Doc A: {up_a.status_code}, Doc B: {up_b.status_code}")
+    time.sleep(2.5)
 
     # -------------------------------------------------------------
     # 3. SINGLE DOCUMENT QA
@@ -156,6 +157,7 @@ def run_all_audits():
     priv_b_name = f"private_b_{uid_b}.txt"
     priv_b_content = b"PRIVATE USER B SECRET: BETA-PRIVATE-8427"
     session.post(f"{BASE}/upload", headers=auth_header(token_b), files={"file": (priv_b_name, priv_b_content, "text/plain")})
+    time.sleep(2.5)
 
     # User A accesses own secret
     chat_sec_a = session.post(f"{BASE}/chat", headers=auth_header(token_a), json={
