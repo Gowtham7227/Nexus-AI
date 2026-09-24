@@ -62,13 +62,18 @@ _vector_store: Optional[Chroma] = None
 def get_vector_store():
     """
     Return the persistent Chroma vector store.
-    The absolute path guarantees that the database is always
-    stored beside this Python file, regardless of the process cwd.
+    Includes self-healing recovery in case of stale collections or corrupted index segments.
     """
     global _vector_store
 
     if _vector_store is not None:
-        return _vector_store
+        try:
+            # Verify collection health
+            _ = _vector_store._collection.count()
+            return _vector_store
+        except Exception as health_err:
+            print("⚠️ [CHROMA HEALTH] Vector store collection check failed, re-initializing:", str(health_err))
+            _vector_store = None
 
     os.makedirs(CHROMA_DIR, exist_ok=True)
 
@@ -77,18 +82,20 @@ def get_vector_store():
     print("Directory:", CHROMA_DIR)
     print("=" * 70)
 
-    _vector_store = Chroma(
-        persist_directory=CHROMA_DIR,
-        embedding_function=embedding_model,
-    )
-
-    print("✅ Chroma database loaded and cached")
-
     try:
-        print("📊 Total chunks currently in Chroma:",
-              _vector_store._collection.count())
-    except Exception as exc:
-        print("⚠️ Could not read Chroma count:", str(exc))
+        _vector_store = Chroma(
+            persist_directory=CHROMA_DIR,
+            embedding_function=embedding_model,
+        )
+        print("✅ Chroma database loaded and cached")
+        try:
+            print("📊 Total chunks currently in Chroma:", _vector_store._collection.count())
+        except Exception as exc:
+            print("⚠️ Could not read Chroma count:", str(exc))
+    except Exception as init_err:
+        print("❌ [CHROMA INIT ERROR] Failed to initialize Chroma DB:", str(init_err))
+        _vector_store = None
+        raise
 
     return _vector_store
 

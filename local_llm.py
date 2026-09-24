@@ -1,7 +1,13 @@
 import ollama
+import httpx
 import re
 import json
 import time
+import os
+
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "3.0"))
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+ollama_client = ollama.Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT)
 
 
 # ============================================================
@@ -718,7 +724,7 @@ def ask_local(
 
         try:
 
-            response = ollama.chat(
+            response = ollama_client.chat(
 
                 model=MODEL_NAME,
 
@@ -758,6 +764,8 @@ def ask_local(
 
 
         except Exception as structured_error:
+            if isinstance(structured_error, (httpx.HTTPError, ConnectionError, OSError)):
+                raise structured_error
 
             print(
                 "⚠️ Structured output failed:"
@@ -772,7 +780,7 @@ def ask_local(
             )
 
 
-            response = ollama.chat(
+            response = ollama_client.chat(
 
                 model=MODEL_NAME,
 

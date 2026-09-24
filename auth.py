@@ -54,6 +54,33 @@ import threading
 
 _thread_local = threading.local()
 
+import random
+import time
+from functools import wraps
+from typing import Optional, Dict, Any, List, Tuple, Union
+
+def retry_on_db_lock(max_retries: int = 5, initial_delay: float = 0.02, max_delay: float = 0.25):
+    """
+    Decorator to safely retry SQLite write transactions when experiencing contention (locked/busy).
+    Uses exponential backoff with random jitter to prevent thundering herd under high concurrency.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except sqlite3.OperationalError as e:
+                    err_msg = str(e).lower()
+                    if ("locked" in err_msg or "busy" in err_msg) and attempt < max_retries - 1:
+                        time.sleep(delay + random.uniform(0.005, 0.025))
+                        delay = min(delay * 2, max_delay)
+                        continue
+                    raise
+        return wrapper
+    return decorator
+
 def get_connection():
     conn = getattr(_thread_local, "connection", None)
     if conn is not None:
@@ -377,6 +404,7 @@ def verify_password(
 # User Functions
 # ============================================================
 
+@retry_on_db_lock()
 def create_user(
     email: str,
     password: str,
@@ -464,6 +492,7 @@ def authenticate_user(
     return user
 
 
+@retry_on_db_lock()
 def update_password(
     email: str,
     new_password: str,
@@ -528,6 +557,12 @@ def create_access_token(
     )
 
 
+def is_token_expired(exp_timestamp: Optional[Union[int, float]]) -> bool:
+    """Check if a JWT exp timestamp (in epoch seconds) has expired."""
+    if not exp_timestamp:
+        return False
+    return datetime.now(timezone.utc).timestamp() >= float(exp_timestamp)
+
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """
     Decode and validate a JWT access token.
@@ -553,6 +588,7 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
         return {
             "user_id": int(user_id),
             "email": email,
+            "exp": payload.get("exp"),
         }
 
     except Exception:
@@ -604,6 +640,7 @@ def generate_conversation_title(question: str) -> str:
     return title[0].upper() + title[1:] if len(title) > 1 else title.upper()
 
 
+@retry_on_db_lock()
 def create_conversation(user_id: int, title: str = "New Conversation") -> Dict[str, Any]:
     """Create a new conversation belonging to the specified user."""
     title = (title or "New Conversation").strip()
@@ -700,6 +737,7 @@ def get_conversation(conversation_id: int, user_id: int) -> Optional[Dict[str, A
         connection.close()
 
 
+@retry_on_db_lock()
 def update_conversation_title(conversation_id: int, user_id: int, title: str) -> bool:
     """Rename a conversation with ownership validation."""
     title = (title or "").strip()
@@ -725,6 +763,7 @@ def update_conversation_title(conversation_id: int, user_id: int, title: str) ->
         connection.close()
 
 
+@retry_on_db_lock()
 def delete_conversation(conversation_id: int, user_id: int) -> bool:
     """Delete a conversation, cascading messages and document mappings while preserving uploaded files."""
     connection = get_connection()
@@ -742,6 +781,7 @@ def delete_conversation(conversation_id: int, user_id: int) -> bool:
         connection.close()
 
 
+@retry_on_db_lock()
 def save_message(conversation_id: int, role: str, content: str) -> int:
     """Persist a message (user or assistant) into the conversation history."""
     now = datetime.now(timezone.utc).isoformat()
@@ -760,6 +800,7 @@ def save_message(conversation_id: int, role: str, content: str) -> int:
         connection.close()
 
 
+@retry_on_db_lock()
 def touch_conversation(conversation_id: int, user_id: int) -> None:
     """Update conversation updated_at timestamp."""
     now = datetime.now(timezone.utc).isoformat()
@@ -778,6 +819,7 @@ def touch_conversation(conversation_id: int, user_id: int) -> None:
         connection.close()
 
 
+@retry_on_db_lock()
 def set_conversation_documents(conversation_id: int, user_id: int, filenames: list) -> None:
     """Persist selected documents associated with a conversation, verifying user ownership."""
     now = datetime.now(timezone.utc).isoformat()
@@ -869,6 +911,7 @@ def get_document_privacy(
 # Telemetry & Observability Functions
 # ============================================================
 
+@retry_on_db_lock()
 def record_ai_metric(
     request_id: str,
     user_id: int,
@@ -1172,6 +1215,7 @@ ALLOWED_FEEDBACK_REASONS = {
     "other",
 }
 
+@retry_on_db_lock()
 def save_message_feedback(
     user_id: int,
     conversation_id: int,
@@ -1394,6 +1438,7 @@ def get_cached_response(user_id: int, cache_key: str) -> Optional[Dict[str, Any]
         return None
 
 
+@retry_on_db_lock()
 def set_cached_response(
     user_id: int,
     cache_key: str,
@@ -1455,6 +1500,7 @@ def set_cached_response(
         return False
 
 
+@retry_on_db_lock()
 def invalidate_document_cache(user_id: int, filename: str) -> int:
     """Invalidates all cached responses for a user when a document is modified or deleted."""
     connection = get_connection()
@@ -1469,6 +1515,7 @@ def invalidate_document_cache(user_id: int, filename: str) -> int:
         connection.close()
 
 
+@retry_on_db_lock()
 def clear_user_response_cache(user_id: int) -> int:
     """Clears all response cache entries for a user."""
     connection = get_connection()
