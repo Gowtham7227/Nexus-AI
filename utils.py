@@ -147,17 +147,35 @@ def extract_document_content(file_path: str) -> Dict[str, Any]:
             sheet_pages = []
 
             for s_idx, worksheet in enumerate(workbook.worksheets, start=1):
-                sheet_lines = [f"Sheet: {worksheet.title}"]
+                raw_rows = []
                 for row in worksheet.iter_rows(values_only=True):
-                    values = [str(v) for v in row if v is not None]
-                    if values:
-                        sheet_lines.append(" | ".join(values))
-                sheet_text = "\n".join(sheet_lines)
+                    if any(v is not None for v in row):
+                        raw_rows.append(list(row))
+
+                if raw_rows:
+                    from services.table_extractor import TableAwareExtractor
+                    chunks = TableAwareExtractor.serialize_spreadsheet_sheet(
+                        sheet_name=worksheet.title,
+                        sheet_data=raw_rows,
+                        filename=doc_name,
+                    )
+                    if chunks:
+                        sheet_text = "\n\n".join(c["text"] for c in chunks)
+                    else:
+                        sheet_lines = [f"Sheet: {worksheet.title}"]
+                        for r in raw_rows:
+                            vals = [str(v) for v in r if v is not None]
+                            if vals:
+                                sheet_lines.append(" | ".join(vals))
+                        sheet_text = "\n".join(sheet_lines)
+                else:
+                    sheet_text = f"Sheet: {worksheet.title}\n(Empty sheet)"
+
                 sheet_pages.append({
                     "page_number": s_idx,
                     "text": sheet_text,
                     "char_count": len(sheet_text),
-                    "extraction_method": "native",
+                    "extraction_method": "table_extractor",
                 })
 
             workbook.close()

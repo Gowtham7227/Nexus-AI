@@ -1,9 +1,9 @@
 # NexusAI — Document RAG Retrieval Diagnostic Report for `ss-high (1).pdf`
 
-**Date**: September 21, 2026  
-**Canonical Project Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`  
-**Target Document**: `ss-high (1).pdf` (45,249,259 bytes)  
-**Registered User**: `user_id = 2` (`chinnunani3117@gmail.com`)  
+**Date**: September 21, 2026
+**Canonical Project Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`
+**Target Document**: `ss-high (1).pdf` (45,249,259 bytes)
+**Registered User**: `user_id = 2` (`chinnunani3117@gmail.com`)
 **Investigated Queries**:
 1. *"What is the difference between gas giants and ice giants?"*
 2. *"What is the heliosphere?"*
@@ -63,8 +63,8 @@ Native PDF text extraction (`pypdf`) successfully parsed all 42 pages without er
 - `'hydrogen'`: 13 occurrences; `'helium'`: 10 occurrences; `'methane'`: 12 occurrences
 
 **Key Source Excerpts**:
-> **Page 4**: *"Jupiter and Saturn — are known as gas giants; the more distant Uranus and Neptune are called ice giants."*  
-> **Page 32**: *"Uranus is one of the two ice giants of the outer solar system (the other is Neptune). The atmosphere is mostly hydrogen and helium, with a small amount of methane and traces of water and ammonia... bulk (80 percent or more) of the mass of Uranus is contained in an extended liquid core consisting mostly of icy materials (water, methane, and ammonia)."*  
+> **Page 4**: *"Jupiter and Saturn — are known as gas giants; the more distant Uranus and Neptune are called ice giants."*
+> **Page 32**: *"Uranus is one of the two ice giants of the outer solar system (the other is Neptune). The atmosphere is mostly hydrogen and helium, with a small amount of methane and traces of water and ammonia... bulk (80 percent or more) of the mass of Uranus is contained in an extended liquid core consisting mostly of icy materials (water, methane, and ammonia)."*
 > **Page 24 & 28**: Jupiter and Saturn gas giants consisting predominantly of hydrogen and helium gas.
 
 ### Question 2 Target Terms:

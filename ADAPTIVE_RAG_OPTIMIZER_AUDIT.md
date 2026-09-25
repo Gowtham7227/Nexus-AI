@@ -1,10 +1,10 @@
 # NexusAI — Adaptive RAG Optimizer Audit & Quality-vs-Latency Tuning Report
 
-**Date**: September 21, 2026  
-**Canonical Local Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`  
-**Optimizer Module**: [`rag_optimizer.py`](file:///C:/Users/gowth/OneDrive/Desktop/Projects/NexusAI/rag_optimizer.py)  
-**Enhanced Engine**: [`advanced_rag.py`](file:///C:/Users/gowth/OneDrive/Desktop/Projects/NexusAI/advanced_rag.py)  
-**Test & Profiler Suites**: 
+**Date**: September 21, 2026
+**Canonical Local Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`
+**Optimizer Module**: [`rag_optimizer.py`](file:///C:/Users/gowth/OneDrive/Desktop/Projects/NexusAI/rag_optimizer.py)
+**Enhanced Engine**: [`advanced_rag.py`](file:///C:/Users/gowth/OneDrive/Desktop/Projects/NexusAI/advanced_rag.py)
+**Test & Profiler Suites**:
 - [`test_rag_optimizer.py`](file:///C:/Users/gowth/OneDrive/Desktop/Projects/NexusAI/test_rag_optimizer.py) (18/18 Unit/Integration Tests)
 - [`benchmark_rag_optimizer.py`](file:///C:/Users/gowth/OneDrive/Desktop/Projects/NexusAI/benchmark_rag_optimizer.py) (End-to-End Grounding & Latency)
 - [`benchmark_stage_profiler.py`](file:///C:/Users/gowth/OneDrive/Desktop/Projects/NexusAI/benchmark_stage_profiler.py) (Fine-Grained Stage Breakdown)

@@ -12,6 +12,10 @@ from services.document_service import (
     UPLOAD_FOLDER,
 )
 
+from services.table_extractor import TableAwareExtractor
+from services.verification_service import VerificationService
+from services.reasoning_service import MultiHopReasoningService
+
 __all__ = [
     "validate_uploaded_content",
     "validate_upload_filename",
@@ -24,4 +28,7 @@ __all__ = [
     "MAX_UPLOAD_SIZE_MB",
     "MAX_UPLOAD_SIZE_BYTES",
     "UPLOAD_FOLDER",
+    "TableAwareExtractor",
+    "VerificationService",
+    "MultiHopReasoningService",
 ]

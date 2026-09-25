@@ -1,12 +1,12 @@
 # NexusAI — Empirical RAG Baseline Measurement Report
 
-**Measurement Date**: 2026-09-21  
-**Project Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`  
-**Dataset**: `evaluation_datasets/rag_eval_dataset.json` (v1.0.0)  
-**Evaluator**: `rag_evaluation.py` / `DeterministicGroundingEvaluator`  
-**Reranker Model**: `cross-encoder/ms-marco-MiniLM-L-6-v2`  
-**Embedding Model**: `sentence-transformers/all-MiniLM-L6-v2`  
-**Primary Generation LLM**: `gemini-3.5-flash-lite` (via Google GenAI SDK)  
+**Measurement Date**: 2026-09-21
+**Project Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`
+**Dataset**: `evaluation_datasets/rag_eval_dataset.json` (v1.0.0)
+**Evaluator**: `rag_evaluation.py` / `DeterministicGroundingEvaluator`
+**Reranker Model**: `cross-encoder/ms-marco-MiniLM-L-6-v2`
+**Embedding Model**: `sentence-transformers/all-MiniLM-L6-v2`
+**Primary Generation LLM**: `gemini-3.5-flash-lite` (via Google GenAI SDK)
 
 ---
 

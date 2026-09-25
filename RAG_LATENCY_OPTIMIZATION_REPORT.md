@@ -1,10 +1,10 @@
 # NexusAI Phase 2 — RAG Latency Profiling & Real OCR Evaluation Report
 
-**Report Date**: September 21, 2026  
-**Canonical Project Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`  
-**Test Document Corpus**: `ss-high (1).pdf`, `architecture_spec.txt`, `enterprise_storage.txt`, `benchmark_report.txt`, `scanned_demo.pdf`  
-**Active Test User ID**: `2` (`chinnunani3117@gmail.com`)  
-**Primary LLM Model**: `gemini-3.5-flash-lite`  
+**Report Date**: September 21, 2026
+**Canonical Project Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`
+**Test Document Corpus**: `ss-high (1).pdf`, `architecture_spec.txt`, `enterprise_storage.txt`, `benchmark_report.txt`, `scanned_demo.pdf`
+**Active Test User ID**: `2` (`chinnunani3117@gmail.com`)
+**Primary LLM Model**: `gemini-3.5-flash-lite`
 
 ---
 

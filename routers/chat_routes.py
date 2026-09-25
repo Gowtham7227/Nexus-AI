@@ -34,6 +34,7 @@ from model_provider import GeminiModelProvider, LocalQwenModelProvider
 from advanced_rag import NexusAdvancedRAG
 from rag_evaluation import SourceCitationManager, DeterministicGroundingEvaluator
 from privacy_scanner import OutputPrivacyGuard
+from services.reasoning_service import MultiHopReasoningService
 
 CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() in ("true", "1", "yes")
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "86400"))
@@ -205,10 +206,10 @@ def chat(
         print(f"🔹 [STAGE 4] DOCUMENT LOOKUP RESULT: verified={validated_filenames}, count={len(validated_filenames)}")
 
         # Stage [5] ADVANCED HYBRID RETRIEVAL START
-        print(f"🔹 [STAGE 5] ADVANCED HYBRID RETRIEVAL START: querying Hybrid RAG (BM25 + Chroma) for question='{request.question[:60]}...' against {validated_filenames}")
+        print(f"🔹 [STAGE 5] ADVANCED HYBRID RETRIEVAL START: querying Hybrid RAG / Multi-Hop for question='{request.question[:60]}...' against {validated_filenames}")
 
-        # Retrieve hybrid context with reranking, window expansion & prompt injection shielding
-        retrieval_res = NexusAdvancedRAG.retrieve_hybrid_context(
+        # Retrieve hybrid context with multi-hop iterative reasoning, reranking, and verification
+        retrieval_res = MultiHopReasoningService.execute_multi_hop_pipeline(
             request.question,
             validated_filenames,
             user_id=current_user["user_id"],
@@ -218,13 +219,19 @@ def chat(
         raw_citations = retrieval_res.get("citations", [])
         retrieval_timings = retrieval_res.get("timings", {})
         strategy_info = retrieval_res.get("strategy", {})
+        reasoning_mode = retrieval_res.get("reasoning_mode", "single_pass")
+        hop_count = retrieval_res.get("hop_count", 1)
+        subquery_count = len(retrieval_res.get("subqueries", [request.question]))
+        evidence_sufficiency = retrieval_res.get("evidence_sufficiency", "sufficient")
+        conflict_detected = retrieval_res.get("conflict_detected", False)
+        table_evidence = retrieval_res.get("table_evidence", False)
 
         # Stage [6] ADVANCED RETRIEVAL RESULT
-        print(f"🔹 [STAGE 6] ADVANCED RETRIEVAL RESULT: retrieved context length={len(context)} chars, evidence_quality={evidence_quality}")
+        print(f"🔹 [STAGE 6] ADVANCED RETRIEVAL RESULT: retrieved context length={len(context)} chars, evidence_quality={evidence_quality}, reasoning_mode={reasoning_mode}, hops={hop_count}")
 
-        if not context.strip():
-            print("⚠️ No relevant context found across documents.")
-            fallback_ans = "I couldn't find relevant information in the selected document(s)."
+        if not context.strip() or evidence_sufficiency == "insufficient":
+            print("⚠️ No relevant or sufficient context found across documents.")
+            fallback_ans = "I couldn't find sufficient information in the selected document(s) to answer this question."
             msg_id = save_message(conv_id, "assistant", fallback_ans)
             touch_conversation(conv_id, current_user["user_id"])
             total_ms = (time.perf_counter() - t_req_start) * 1000
@@ -248,6 +255,13 @@ def chat(
                 streaming=0,
                 cache_hit=0,
                 status="insufficient_evidence",
+                reasoning_mode=reasoning_mode,
+                hop_count=hop_count,
+                subquery_count=subquery_count,
+                evidence_sufficiency=evidence_sufficiency,
+                conflict_detected=1 if conflict_detected else 0,
+                table_retrieval_used=1 if table_evidence else 0,
+                reasoning_latency=retrieval_timings.get("reasoning_ms", 0.0),
             )
 
             return {
@@ -266,6 +280,13 @@ def chat(
                     "is_insufficient_evidence": True,
                 },
                 "evidence_quality": "Low",
+                "reasoning_mode": reasoning_mode,
+                "hop_count": hop_count,
+                "subquery_count": subquery_count,
+                "evidence_sufficiency": evidence_sufficiency,
+                "conflict_detected": conflict_detected,
+                "conflicts": retrieval_res.get("conflicts", []),
+                "table_evidence": table_evidence,
                 "conversation_id": conv_id,
                 "conversation_title": conv_title,
                 "request_id": request_id,
@@ -346,6 +367,13 @@ def chat(
             streaming=0,
             cache_hit=0,
             status="success",
+            reasoning_mode=reasoning_mode,
+            hop_count=hop_count,
+            subquery_count=subquery_count,
+            evidence_sufficiency=evidence_sufficiency,
+            conflict_detected=1 if conflict_detected else 0,
+            table_retrieval_used=1 if table_evidence else 0,
+            reasoning_latency=retrieval_timings.get("reasoning_ms", 0.0),
         )
 
         # Stage [10] CHAT SUCCESS
@@ -367,6 +395,13 @@ def chat(
                 "unsupported_claim_ratio": grounding_eval["unsupported_claim_ratio"],
             },
             "evidence_quality": evidence_quality,
+            "reasoning_mode": reasoning_mode,
+            "hop_count": hop_count,
+            "subquery_count": subquery_count,
+            "evidence_sufficiency": evidence_sufficiency,
+            "conflict_detected": conflict_detected,
+            "conflicts": retrieval_res.get("conflicts", []),
+            "table_evidence": table_evidence,
             "conversation_id": conv_id,
             "conversation_title": conv_title,
             "request_id": request_id,
@@ -537,8 +572,8 @@ def chat_stream(
 
                 # 3. Document Grounded RAG
                 else:
-                    print(f"📚 [STREAM] Executing Document RAG Stream (user_id={user_id}, docs={validated_filenames})...")
-                    retrieval_res = NexusAdvancedRAG.retrieve_hybrid_context(
+                    print(f"📚 [STREAM] Executing Document RAG / Multi-Hop Stream (user_id={user_id}, docs={validated_filenames})...")
+                    retrieval_res = MultiHopReasoningService.execute_multi_hop_pipeline(
                         request.question,
                         validated_filenames,
                         user_id=current_user["user_id"],
@@ -547,11 +582,17 @@ def chat_stream(
                     evidence_quality = retrieval_res["evidence_quality"]
                     retrieval_timings = retrieval_res.get("timings", {})
                     strategy_info = retrieval_res.get("strategy", {})
-                    query_type = strategy_info.get("query_type", "document_rag")
-                    optimizer_strat = strategy_info.get("complexity", "hybrid")
+                    query_type = strategy_info.get("query_type", "document_rag") if strategy_info else "document_rag"
+                    optimizer_strat = strategy_info.get("complexity", "hybrid") if strategy_info else "hybrid"
+                    reasoning_mode = retrieval_res.get("reasoning_mode", "single_pass")
+                    hop_count = retrieval_res.get("hop_count", 1)
+                    subquery_count = len(retrieval_res.get("subqueries", [request.question]))
+                    evidence_sufficiency = retrieval_res.get("evidence_sufficiency", "sufficient")
+                    conflict_detected = retrieval_res.get("conflict_detected", False)
+                    table_evidence = retrieval_res.get("table_evidence", False)
 
-                    if not context.strip():
-                        fallback_ans = "I couldn't find relevant information in the selected document(s)."
+                    if not context.strip() or evidence_sufficiency == "insufficient":
+                        fallback_ans = "I couldn't find sufficient information in the selected document(s) to answer this question."
                         accumulated_text = fallback_ans
                         ttft_ms = (time.perf_counter() - t_req_start) * 1000
                         yield f"event: token\ndata: {json.dumps({'text': fallback_ans})}\n\n"
@@ -639,6 +680,13 @@ def chat_stream(
                     streaming=1,
                     cache_hit=0,
                     status="success",
+                    reasoning_mode=reasoning_mode if 'reasoning_mode' in locals() else "single_pass",
+                    hop_count=hop_count if 'hop_count' in locals() else 1,
+                    subquery_count=subquery_count if 'subquery_count' in locals() else 1,
+                    evidence_sufficiency=evidence_sufficiency if 'evidence_sufficiency' in locals() else "sufficient",
+                    conflict_detected=1 if ('conflict_detected' in locals() and conflict_detected) else 0,
+                    table_retrieval_used=1 if ('table_evidence' in locals() and table_evidence) else 0,
+                    reasoning_latency=retrieval_timings.get("reasoning_ms", 0.0),
                 )
 
                 # 8. Complete event
@@ -653,6 +701,12 @@ def chat_stream(
                         "supported_claim_ratio": grounding_eval.get("supported_claim_ratio", 1.0),
                         "unsupported_claim_ratio": grounding_eval.get("unsupported_claim_ratio", 0.0),
                     },
+                    "reasoning_mode": reasoning_mode if 'reasoning_mode' in locals() else "single_pass",
+                    "hop_count": hop_count if 'hop_count' in locals() else 1,
+                    "evidence_sufficiency": evidence_sufficiency if 'evidence_sufficiency' in locals() else "sufficient",
+                    "conflict_detected": conflict_detected if 'conflict_detected' in locals() else False,
+                    "conflicts": retrieval_res.get("conflicts", []) if 'retrieval_res' in locals() else [],
+                    "table_evidence": table_evidence if 'table_evidence' in locals() else False,
                     "status": "complete",
                     "request_id": request_id,
                     "message_id": msg_id,
@@ -756,7 +810,7 @@ def local_chat_normal(
                 "conversation_title": conv_title,
             }
 
-        retrieval_res = NexusAdvancedRAG.retrieve_hybrid_context(
+        retrieval_res = MultiHopReasoningService.execute_multi_hop_pipeline(
             request.question,
             validated_filenames,
             user_id=current_user["user_id"],
@@ -796,6 +850,10 @@ def local_chat_normal(
             "answer": answer,
             "conversation_id": conv_id,
             "conversation_title": conv_title,
+            "reasoning_mode": retrieval_res.get("reasoning_mode", "single_pass"),
+            "hop_count": retrieval_res.get("hop_count", 1),
+            "evidence_sufficiency": retrieval_res.get("evidence_sufficiency", "sufficient"),
+            "conflict_detected": retrieval_res.get("conflict_detected", False),
         }
 
     except Exception as e:
@@ -841,7 +899,7 @@ def local_chat(
         if not validated_filenames:
             stream_gen = stream_local("", request.question)
         else:
-            retrieval_res = NexusAdvancedRAG.retrieve_hybrid_context(
+            retrieval_res = MultiHopReasoningService.execute_multi_hop_pipeline(
                 request.question,
                 validated_filenames,
                 user_id=current_user["user_id"],

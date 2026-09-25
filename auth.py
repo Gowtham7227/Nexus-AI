@@ -354,6 +354,28 @@ def init_auth_db():
         except Exception:
             pass
 
+        # 12. Schema migration for ai_request_metrics table (v1.4 fields)
+        try:
+            metrics_cursor = connection.execute("PRAGMA table_info(ai_request_metrics)")
+            existing_m_cols = {row["name"] for row in metrics_cursor.fetchall()}
+            m_col_defs = {
+                "reasoning_mode": "TEXT DEFAULT 'single_pass'",
+                "hop_count": "INTEGER DEFAULT 1",
+                "subquery_count": "INTEGER DEFAULT 1",
+                "evidence_sufficiency": "TEXT DEFAULT 'sufficient'",
+                "conflict_detected": "INTEGER DEFAULT 0",
+                "table_retrieval_used": "INTEGER DEFAULT 0",
+                "reasoning_latency": "REAL DEFAULT 0.0",
+            }
+            for col_name, col_type in m_col_defs.items():
+                if col_name not in existing_m_cols:
+                    try:
+                        connection.execute(f"ALTER TABLE ai_request_metrics ADD COLUMN {col_name} {col_type}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         connection.commit()
 
     finally:
@@ -934,6 +956,13 @@ def record_ai_metric(
     streaming: int = 0,
     cache_hit: int = 0,
     status: str = "success",
+    reasoning_mode: Optional[str] = "single_pass",
+    hop_count: Optional[int] = 1,
+    subquery_count: Optional[int] = 1,
+    evidence_sufficiency: Optional[str] = "sufficient",
+    conflict_detected: Optional[int] = 0,
+    table_retrieval_used: Optional[int] = 0,
+    reasoning_latency: Optional[float] = 0.0,
 ) -> Optional[int]:
     """
     Safely records an AI request telemetry metric in SQLite.
@@ -950,9 +979,11 @@ def record_ai_metric(
                     query_type, optimizer_strategy, retrieval_ms, chroma_ms, bm25_ms,
                     cross_encoder_ms, compression_ms, ttft_ms, generation_ms, total_ms,
                     context_tokens, output_tokens, citation_count, grounding_score,
-                    model, streaming, cache_hit, status
+                    model, streaming, cache_hit, status,
+                    reasoning_mode, hop_count, subquery_count, evidence_sufficiency,
+                    conflict_detected, table_retrieval_used, reasoning_latency
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     request_id, user_id, conversation_id, now,
@@ -960,6 +991,9 @@ def record_ai_metric(
                     cross_encoder_ms, compression_ms, ttft_ms, generation_ms, total_ms,
                     context_tokens, output_tokens, citation_count, grounding_score,
                     model, streaming, cache_hit, status,
+                    reasoning_mode or "single_pass", hop_count or 1, subquery_count or 1,
+                    evidence_sufficiency or "sufficient", 1 if conflict_detected else 0,
+                    1 if table_retrieval_used else 0, reasoning_latency or 0.0,
                 ),
             )
             connection.commit()

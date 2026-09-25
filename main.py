@@ -30,7 +30,7 @@ print("=" * 70)
 app = FastAPI(
     title="NexusAI Backend",
     description="AI Powered Document Intelligence Assistant",
-    version="1.3.0",
+    version="1.4.0",
 )
 
 # CORS Configuration

@@ -1,30 +1,45 @@
-# NexusAI v1.1.0 - Privacy-Aware Advanced RAG Document Intelligence Assistant
+# NexusAI v1.4.0 - Privacy-Aware Advanced RAG & Research Document Intelligence Platform
 
-NexusAI is an enterprise-grade, privacy-aware **Advanced Retrieval-Augmented Generation (RAG)** platform for document intelligence, semantic search, multi-document reasoning, and question answering supporting documents up to **100 MB**.
+NexusAI is an enterprise-grade, privacy-aware **Advanced Retrieval-Augmented Generation (RAG)** platform for document intelligence, semantic search, multi-document reasoning, multi-hop evidence synthesis, and structured data analysis supporting documents up to **100 MB**.
 
 ---
 
-## 🌟 Key Capabilities & Features in v1.1.0
+## 🌟 Key Capabilities & Features in v1.4.0
 
+### 🔬 Core Research Capabilities (v1.4)
+- **Bounded Multi-Hop & Iterative Retrieval Engine**:
+  - **Dynamic Sub-Query Decomposition**: Deconstructs multi-entity and comparison questions into sequential reasoning hops.
+  - **Context-Aware Cross-Hop Bridging**: Injects intermediate retrieved entities into subsequent retrieval iterations.
+  - **Context Explosion Bounding**: Strictly caps retrieval iterations (max 3 hops) and token budgets with deterministic early stopping upon evidence sufficiency.
+- **Evidence Sufficiency Verification**:
+  - **Aspect-Level Coverage Analysis**: Deterministic token and concept coverage evaluation against query requirements.
+  - **Missing Evidence Detection**: Explicitly identifies unsupported sub-claims or missing documents before generation.
+  - **Hallucination Suppression**: Automatically triggers conservative fallback answering when evidence sufficiency falls below threshold (< 0.60).
+- **Cross-Document Conflict Detection**:
+  - **Assertion & Entity Extraction**: Identifies numeric values, dates, percentages, and factual claims across multiple ingested documents.
+  - **Contradiction Flagging**: Detects cross-source discrepancies and annotates conflicting findings directly in the response metadata.
+  - **Confidence Calibration**: Automatically reduces overall answer confidence when unresolved source conflicts exist.
+- **Table-Aware Structural Retrieval**:
+  - **Grid & Table Parsing**: Converts structured tabular data into high-fidelity Markdown and CSV representations with page-level spatial coordinates.
+  - **Schema-Aware Cell Retrieval**: Preserves row-column relationships and header contexts during chunking to prevent fragmented numerical data.
+
+### ⚡ Core RAG & Modular Architecture (v1.3 & v1.2)
+- **Fully Modular Fast-API Architecture**:
+  - Clear separation of concerns: `routers/`, `services/`, `schemas/`, `dependencies/`, preserving 35/35 REST API endpoints.
+  - Ultra-lean application lifecycle (`main.py` ~ 100 lines) with complete route preservation.
 - **Adaptive RAG Optimizer**:
-  - **Dynamic Strategy Selection**: Heuristic and rule-based query classifier (simple factual, exact technical, conceptual, procedural, comparison, multi-document, complex analytical, ambiguous, OCR-derived, page-specific).
-  - **Dynamic Parameter Tuning**: Context-aware retrieval depth (Initial K: 15–40, Final K: 3–10), fusion weights (RRF vs. Convex), cross-encoder boost factors, and confidence calibration.
+  - **Dynamic Strategy Selection**: Rule-based query classifier (factual, technical, conceptual, procedural, comparison, multi-document, analytical, OCR-derived).
+  - **Dynamic Parameter Tuning**: Context-aware retrieval depth (Initial K: 15–40, Final K: 3–10), fusion weights (RRF vs. Convex), cross-encoder boost factors.
 - **Advanced Multi-Stage RAG Pipeline**:
   - **Hybrid Retrieval**: Dual-stream semantic vector retrieval (ChromaDB + Sentence Transformers `all-MiniLM-L6-v2`) and lexical retrieval (tokenized BM25Okapi).
   - **Self-Healing Vector Fallback**: In-memory dense cosine similarity fallback to prevent query drops during Chroma SQLite desync or lock contention.
   - **Score Fusion**: Reciprocal Rank Fusion (RRF) and Convex Linear Combination for balanced recall across dense and sparse spaces.
   - **True Transformer Cross-Encoder Reranker**: Deep query-document joint attention scoring via `cross-encoder/ms-marco-MiniLM-L-6-v2` executed locally in-process.
   - **Context Expansion & Compression**: Sliding-window context retrieval with redundancy deduplication and token budget optimization.
-- **Comprehensive RAG Evaluation & Source Citations**:
-  - **Grounding Evaluator**: Deterministic concept and lexical token overlap scoring to eliminate hallucinations.
-  - **Source Citation Manager**: Fine-grained, verifiable document name, chunk ID, and page-level attribution returned with every answer.
-  - **Automated Quality Benchmark**: 10-category evaluation suite testing Hit@K, MRR, source accuracy, page accuracy, and concept coverage.
 - **Enterprise Document Processing & OCR**:
   - Native multi-format extraction for PDF, DOCX, and TXT with per-page metadata tracking.
   - **Selective Scanned PDF OCR**: Automatic fallback to Tesseract OCR engine for scanned, image-only, or low-text PDF pages at 300 DPI.
   - 100 MB file upload limit with strict MIME and filename traversal security guards.
-- **Multi-Document Reasoning**:
-  - Cross-document synthesis, comparative analysis, and verifiable page-level citation attribution.
 - **Privacy & Security Architecture**:
   - **Multi-Tenant User Isolation**: Strict SQL and vector database boundary filtering per `user_id`.
   - **Prompt Injection Defense**: Multi-layer detection and neutralization of jailbreaks, role overriding, and XML boundary escaping.
@@ -32,7 +47,7 @@ NexusAI is an enterprise-grade, privacy-aware **Advanced Retrieval-Augmented Gen
   - **Right-to-Forget**: Complete cascaded document and vector embedding deletion.
 - **Real-Time Streaming & Dual AI Providers**:
   - **Real-Time Streaming**: Server-Sent Events (SSE) via `/chat/stream` (Document RAG) and `/chat/general/stream` (General Assistant).
-  - **Cloud LLM**: Google Gemini API (`gemini-3.5-flash-lite` / `gemini-3.6-flash` / `gemini-2.5-flash`) with automatic fallback chains.
+  - **Cloud LLM**: Google Gemini API (`gemini-3.6-flash` / `gemini-3.5-flash-lite` / `gemini-2.5-flash`) with automatic fallback chains.
   - **Local LLM**: In-process / offline Qwen model via Ollama with automatic fallback.
 - **Enterprise Authentication & Session Management**:
   - JWT token authentication with algorithm `none` attack rejection.
@@ -40,6 +55,7 @@ NexusAI is an enterprise-grade, privacy-aware **Advanced Retrieval-Augmented Gen
   - Persistent SQLite conversation history with collapsible sessions and sliding context memory.
 - **Modern User Experience**:
   - React 19 + Vite + Tailwind CSS interface.
+  - Rich metadata badges (Multi-Hop iterations, Evidence Sufficiency score, Conflict Warning, Table extraction).
   - Collapsible sidebar conversation history, multi-document tag selector, and clean cardless chat interface with full Markdown and LaTeX math rendering (`katex`).
 
 ---
@@ -51,31 +67,33 @@ User Query / Document Upload
   │
   ├──► [Document Security Gate] (100 MB limit, MIME validation, path traversal guard)
   │      ▼
-  │    [Text Extraction] (PyMuPDF native parser)
+  │    [Text & Table Extraction] (PyMuPDF parser + Tabular Grid Extractor)
   │      ▼ (if scanned / low text < 50 chars)
   │    [Tesseract OCR Engine] (300 DPI selective page renderer)
   │      ▼
-  │    [Token-Aware Chunking] (500 tokens / 50 overlap with page metadata)
+  │    [Token-Aware Chunking] (500 tokens / 50 overlap with table & page metadata)
   │      ├──► ChromaDB Vector Store (sentence-transformers/all-MiniLM-L6-v2)
   │      └──► BM25 Lexical Inverted Index (in-memory per-user cache)
   │
-  └──► [Query Processing]
-         ├──► Chroma Dense Retrieval (Top-30)
-         ├──► BM25 Sparse Retrieval (Top-30)
-         ▼
-       [Hybrid Score Fusion] (RRF & Convex Combination)
-         ▼
-       [TRUE Cross-Encoder Reranker] (cross-encoder/ms-marco-MiniLM-L-6-v2)
-         ▼
-       [Context Expansion & Compression]
-         ▼
-       [Prompt Injection Guard & XML Context Framing]
-         ▼
-       [LLM Generation] (Gemini 2.5/3.6 Flash / Local Qwen)
-         ▼
-       [Output Privacy & PII Guard] (API key & sensitive token redaction)
-         ▼
-       Streaming Frontend Markdown / LaTeX Response
+  └──► [Adaptive Query Processing & Multi-Hop Loop]
+         │
+         ├── Hop 1: [Dense + Sparse Retrieval] ──► [Hybrid Fusion] ──► [Cross-Encoder Reranker]
+         │     ▼
+         ├── [Evidence Sufficiency Check] ──► Sufficient? ─(Yes)─► [Generation Stage]
+         │     ▼ (No / Multi-Hop Required)
+         ├── Hop 2..N: [Sub-Query Generation] ──► [Targeted Retrieval] ──► [Cross-Hop Merge]
+         │     ▼
+         ├── [Cross-Document Conflict Detection] (Discrepancy & Mismatch Annotation)
+         │     ▼
+         ├── [Context Expansion & Compression]
+         │     ▼
+         ├── [Prompt Injection Guard & XML Context Framing]
+         │     ▼
+         ├── [LLM Generation] (Gemini 3.6 Flash / 2.5 Flash / Local Qwen)
+         │     ▼
+         ├── [Output Privacy & PII Guard] (API key & sensitive token redaction)
+         │     ▼
+         Streaming Frontend Markdown / LaTeX Response (with Research Metadata Badges)
 ```
 
 ---
@@ -93,7 +111,7 @@ User Query / Document Upload
 
 ```bash
 # Navigate to repository root
-cd NexusAI-GitHub
+cd NexusAI
 
 # Create and activate virtual environment
 python -m venv venv
@@ -139,7 +157,7 @@ Copy `.env.example` to `.env` and configure the following parameters:
 ```env
 # AI Model Configuration
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.6-flash
 
 # Authentication & Security
 NEXUS_AUTH_SECRET_KEY=your_secure_jwt_secret_key
@@ -154,7 +172,7 @@ SMTP_USERNAME=your_email@gmail.com
 SMTP_PASSWORD=your_gmail_app_password
 SMTP_FROM_EMAIL=your_email@gmail.com
 
-# Cross-Encoder Reranker
+# Cross-Encoder Reranker & Retrieval
 RAG_RERANKER_ENABLED=true
 RAG_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
 RAG_RERANKER_CROSS_ENCODER_WEIGHT=0.7
@@ -186,24 +204,33 @@ npm run lint
 npm run build
 cd ..
 
-# 3. Cross-Encoder Regression Suite
+# 3. V1.4 Core Research Test Suites
+python -m unittest test_multi_hop_reasoning.py
+python -m unittest test_evidence_verification.py
+python -m unittest test_table_extraction.py
+
+# 4. Scientific Baseline vs Enhanced Benchmark (30 queries across 7 categories)
+python run_scientific_benchmark.py
+
+# 5. Cross-Encoder Regression Suite
 python test_cross_encoder_reranker.py
 
-# 4. OCR & Advanced RAG Pipeline Suite
+# 6. OCR & Advanced RAG Pipeline Suite
 python test_ocr_rag_pipeline.py
 
-# 5. Adaptive RAG Optimizer Suite
+# 7. Adaptive RAG Optimizer Suite
 python test_rag_optimizer.py
 
-# 6. RAG Grounding & Evaluation Framework Suite
+# 8. RAG Grounding & Evaluation Framework Suite
 python test_rag_evaluation.py
 
-# 7. Full 10-Category RAG Benchmark
-python rag_evaluation.py
+# 9. Observability, Feedback & Query Cache Suite
+python -m unittest test_observability_feedback_cache.py
 
-# 8. Full Security & Comprehensive Audit
+# 10. Live Security & Comprehensive Audit (Backend server running on 8001)
 python security_audit.py
 python comprehensive_audit.py
+python audit_v1_3_hardening.py
 ```
 
 ---

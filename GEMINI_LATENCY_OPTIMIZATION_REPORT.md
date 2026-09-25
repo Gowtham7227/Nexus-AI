@@ -1,10 +1,10 @@
 # NexusAI Phase 3 — Gemini Latency Optimization & Cloud Investigation Report
 
-**Report Date**: September 21, 2026  
-**Canonical Project Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`  
-**Active Gemini Model**: `gemini-3.5-flash-lite`  
-**Candidate Fallback Chain**: `['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite']`  
-**Primary Dataset**: Deterministic RAG Benchmark & Real Document Corpus (`ss-high (1).pdf`, `architecture_spec.txt`, `enterprise_storage.txt`, `benchmark_report.txt`, `scanned_demo.pdf`)  
+**Report Date**: September 21, 2026
+**Canonical Project Root**: `C:\Users\gowth\OneDrive\Desktop\Projects\NexusAI`
+**Active Gemini Model**: `gemini-3.5-flash-lite`
+**Candidate Fallback Chain**: `['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite']`
+**Primary Dataset**: Deterministic RAG Benchmark & Real Document Corpus (`ss-high (1).pdf`, `architecture_spec.txt`, `enterprise_storage.txt`, `benchmark_report.txt`, `scanned_demo.pdf`)
 
 ---
 

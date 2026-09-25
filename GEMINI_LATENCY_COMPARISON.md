@@ -1,9 +1,9 @@
 # NexusAI Phase 3 — Gemini Latency Comparison (Streaming vs Non-Streaming)
 
-**Date**: September 21, 2026  
-**Active Model**: `gemini-3.5-flash-lite`  
-**Candidate Chain**: `['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite']`  
-**Iterations Per Test Case**: `3 iterations each`  
+**Date**: September 21, 2026
+**Active Model**: `gemini-3.5-flash-lite`
+**Candidate Chain**: `['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite']`
+**Iterations Per Test Case**: `3 iterations each`
 
 ---
 

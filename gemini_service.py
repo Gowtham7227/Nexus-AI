@@ -29,17 +29,17 @@ _client = None
 # Verified active models on Gemini API v1beta / google-genai SDK
 # (excluding models known to return 404 NOT_FOUND such as 1.5, 2.0, 2.5)
 VERIFIED_FALLBACK_MODELS = [
-    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
     "gemini-3-flash-preview",
     "gemini-3.1-flash-lite",
 ]
 
 # Primary model from environment
-DEFAULT_ENV_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
+DEFAULT_ENV_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip()
 if not DEFAULT_ENV_MODEL or any(legacy in DEFAULT_ENV_MODEL for legacy in ["1.5", "2.0", "2.5"]):
-    DEFAULT_ENV_MODEL = "gemini-3.5-flash-lite"
+    DEFAULT_ENV_MODEL = "gemini-3.6-flash"
 
 # Construct deduplicated candidate model fallback chain
 CANDIDATE_MODELS: List[str] = []

@@ -914,6 +914,12 @@ function ChatWindow() {
                     text: completeData.final_text || accumulated,
                     citations: completeData.citations || copy[lastIdx].citations || [],
                     grounding: completeData.grounding || copy[lastIdx].grounding || null,
+                    reasoning_mode: completeData.reasoning_mode || null,
+                    hop_count: completeData.hop_count || 1,
+                    evidence_sufficiency: completeData.evidence_sufficiency || "sufficient",
+                    conflict_detected: Boolean(completeData.conflict_detected),
+                    conflicts: completeData.conflicts || [],
+                    table_evidence: Boolean(completeData.table_evidence),
                   };
                 }
                 return copy;
@@ -2746,6 +2752,82 @@ function ChatWindow() {
                             }}
                           >
                             ⚡ Cached
+                          </span>
+                        )}
+
+                        {msg.reasoning_mode === "multi_hop" && (
+                          <span
+                            className="nx-multihop-badge"
+                            title={`Multi-document iterative reasoning (${msg.hop_count || 2} hops)`}
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              background: "#eff6ff",
+                              color: "#1d4ed8",
+                              border: "1px solid #bfdbfe",
+                              marginRight: "4px",
+                            }}
+                          >
+                            🔄 Multi-doc reasoning ({msg.hop_count || 2} hops)
+                          </span>
+                        )}
+
+                        {msg.conflict_detected && (
+                          <span
+                            className="nx-conflict-badge"
+                            title="Conflicting evidence detected across sources"
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              background: "#fffbeb",
+                              color: "#b45309",
+                              border: "1px solid #fde68a",
+                              marginRight: "4px",
+                            }}
+                          >
+                            ⚠️ Conflicting evidence
+                          </span>
+                        )}
+
+                        {msg.evidence_sufficiency === "insufficient" && (
+                          <span
+                            className="nx-insufficient-badge"
+                            title="Insufficient evidence in corpus"
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              background: "#fef2f2",
+                              color: "#b91c1c",
+                              border: "1px solid #fecaca",
+                              marginRight: "4px",
+                            }}
+                          >
+                            ℹ️ Insufficient evidence
+                          </span>
+                        )}
+
+                        {msg.table_evidence && (
+                          <span
+                            className="nx-table-badge"
+                            title="Table evidence retrieved"
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              background: "#f5f3ff",
+                              color: "#6d28d9",
+                              border: "1px solid #ddd6fe",
+                              marginRight: "4px",
+                            }}
+                          >
+                            📊 Table evidence
                           </span>
                         )}
 

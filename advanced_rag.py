@@ -176,9 +176,12 @@ def get_cross_encoder():
             print("=" * 70)
             from sentence_transformers import CrossEncoder
             try:
-                _cross_encoder_model = CrossEncoder(RAG_RERANKER_MODEL, automodel_args={"local_files_only": True})
+                _cross_encoder_model = CrossEncoder(RAG_RERANKER_MODEL, model_kwargs={"local_files_only": True})
             except Exception:
-                _cross_encoder_model = CrossEncoder(RAG_RERANKER_MODEL)
+                try:
+                    _cross_encoder_model = CrossEncoder(RAG_RERANKER_MODEL, automodel_args={"local_files_only": True})
+                except Exception:
+                    _cross_encoder_model = CrossEncoder(RAG_RERANKER_MODEL)
             print("✅ Local Cross-Encoder loaded and ready")
             return _cross_encoder_model
         except Exception as ce_err:
